@@ -8,7 +8,7 @@ if errorlevel 1 (
 )
 call npm install
 if errorlevel 1 goto :error
-call npm run dist:win
+call npm run dist:win -- --publish never
 if errorlevel 1 goto :error
 echo.
 echo Hoan tat. File cai dat nam trong thu muc dist.

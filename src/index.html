@@ -22,9 +22,9 @@
         <button class="nav-btn" data-view="settings"><span>⚙</span> Cài đặt</button>
       </nav>
       <div class="sidebar-bottom">
-        <div class="offline-pill"><span class="pulse"></span> Hoạt động ngoại tuyến</div>
+        <div class="offline-pill"><span class="pulse"></span> Có chế độ ngoại tuyến</div>
         <p>Truyện và tiến độ được lưu trên máy tính này.</p>
-        <div class="version">TRUYỆN AUDIO · DESKTOP 1.0</div>
+        <div class="version">TRUYỆN AUDIO · DESKTOP 1.3</div>
       </div>
     </aside>
 
@@ -107,6 +107,7 @@
               <button class="round-control" id="nextChapter" title="Chương tiếp" type="button">▶|</button>
             </div>
             <div class="player-settings">
+              <div class="setting-line"><label for="engineSelect">Bộ đọc</label><select id="engineSelect"><option value="windows">Windows (ngoại tuyến)</option><option value="google-standard">Google truyền thống</option><option value="google-ai">Google AI tự nhiên</option></select></div>
               <div class="setting-line"><label for="voiceSelect">Giọng đọc</label><select id="voiceSelect"><option value="">Đang tải giọng đọc...</option></select></div>
               <div class="setting-line"><label for="rateSlider">Tốc độ <strong id="rateValue">1.0×</strong></label><input id="rateSlider" type="range" min="0.6" max="1.8" step="0.1" value="1" /></div>
             </div>
@@ -123,10 +124,17 @@
       <section class="view" id="view-settings">
         <div class="panel-card settings-card">
           <div class="eyebrow">TÙY CHỈNH TRẢI NGHIỆM</div><h2>Cài đặt</h2>
-          <div class="settings-block"><h3>Giọng đọc</h3><p class="muted">Ứng dụng dùng bộ đọc giọng nói tích hợp của Windows/Chromium. Không gửi nội dung truyện lên máy chủ.</p><div class="setting-line"><label for="settingsVoice">Giọng tiếng Việt</label><select id="settingsVoice"><option value="">Tự động chọn</option></select></div><p class="hint" id="voiceHelp">Nếu không có giọng tiếng Việt, hãy cài thêm giọng đọc tiếng Việt trong cài đặt Windows.</p></div>
+          <div class="settings-block"><h3>Giọng đọc</h3><p class="muted">Có thể dùng giọng Windows ngoại tuyến hoặc kết nối Google Cloud để chọn giọng Google truyền thống và Google AI. Khi dùng Google, nội dung truyện được gửi lên Google để tạo âm thanh.</p>
+            <div class="setting-line"><label for="settingsEngine">Bộ đọc</label><select id="settingsEngine"><option value="windows">Windows (ngoại tuyến)</option><option value="google-standard">Google truyền thống</option><option value="google-ai">Google AI tự nhiên</option></select></div>
+            <div class="setting-line"><label for="settingsVoice">Giọng tiếng Việt</label><select id="settingsVoice"><option value="">Tự động chọn</option></select></div>
+            <p class="hint" id="voiceHelp">Google Cloud cần Internet và tài khoản Google Cloud đã kết nối. Giọng Windows vẫn dùng được khi ngoại tuyến.</p>
+            <div class="key-box"><label for="googleClientId">Google OAuth Client ID (ứng dụng máy tính)</label><input id="googleClientId" type="text" autocomplete="off" placeholder="...apps.googleusercontent.com"/><label for="googleProjectId" style="margin-top:12px">Google Cloud Project ID</label><input id="googleProjectId" type="text" autocomplete="off" placeholder="ten-project-google"/><div class="key-actions"><button class="outline-btn" id="connectGoogle" type="button">Kết nối tài khoản Google</button><button class="outline-btn" id="testGoogleKey" type="button">Kiểm tra giọng đọc</button><button class="outline-btn danger-outline" id="clearGoogleKey" type="button">Ngắt kết nối</button></div><p class="hint" id="googleKeyStatus">Chưa kết nối Google Cloud.</p></div>
+          </div>
+          <div class="settings-block"><h3>Đọc truyện</h3><div class="setting-line"><label for="autoNextChapter">Tự động chuyển chương (nghỉ 2 giây)</label><input id="autoNextChapter" type="checkbox" checked /></div><p class="hint">Khi đọc hết một chương, ứng dụng chờ 2 giây rồi tự phát chương tiếp theo.</p></div>
+          <div class="settings-block"><h3>Đồng bộ với Android qua Wi-Fi</h3><p class="muted">Kết nối điện thoại và máy tính vào cùng một mạng Wi-Fi. Bật máy chủ tại đây, sau đó nhập địa chỉ IP và mã PIN hiển thị vào ứng dụng Android. Chỉ thiết bị có mã PIN mới ghép nối được.</p><div class="key-actions"><button class="outline-btn" id="startSync" type="button">Bật máy chủ Wi-Fi</button><button class="outline-btn danger-outline" id="stopSync" type="button" disabled>Ngắt kết nối</button></div><div class="key-box" id="syncInfo" hidden><p class="hint">Địa chỉ máy tính (IP):</p><strong id="syncAddresses" style="display:block;margin:5px 0 12px;overflow-wrap:anywhere"></strong><p class="hint">Cổng kết nối: <strong id="syncPort">38741</strong></p><p class="hint">Mã PIN ghép nối:</p><strong id="syncPin" style="font-size:24px;letter-spacing:5px;display:block;margin:5px 0"></strong></div><p class="hint" id="syncStatus">Máy chủ Wi-Fi đang tắt. Không có dữ liệu nào được chia sẻ khi chưa bật.</p></div>
           <div class="settings-block"><h3>Giao diện</h3><div class="setting-line"><label for="themeSelect">Màu giao diện</label><select id="themeSelect"><option value="dark">Tối</option><option value="light">Sáng</option></select></div></div>
           <div class="settings-block"><h3>Dữ liệu</h3><p class="muted">Thư viện và vị trí nghe được lưu trong hồ sơ người dùng Windows của ứng dụng.</p><button class="outline-btn danger-outline" id="clearLibrary" type="button">Xóa toàn bộ thư viện trên máy này</button></div>
-          <div class="settings-block"><h3>Thông tin</h3><p class="muted">Truyện Audio Desktop 1.0 · Hoạt động ngoại tuyến sau khi cài đặt. Tính năng nhập website cần Internet.</p></div>
+          <div class="settings-block"><h3>Thông tin</h3><p class="muted">Truyện Audio Desktop 1.3 · Chế độ Windows có thể hoạt động ngoại tuyến. Tính năng nhập website cần Internet.</p></div>
         </div>
       </section>
 
