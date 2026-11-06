@@ -33,7 +33,7 @@ jobs:
           node --check src/renderer.js
 
       - name: Build Windows installer
-        run: npm run dist:win
+        run: npm run dist:win -- --publish never
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
