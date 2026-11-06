@@ -1,0 +1,39 @@
+{
+  "name": "truyen-audio-desktop",
+  "version": "1.0.0",
+  "description": "Ung dung nghe truyen offline cho Windows",
+  "main": "src/main.js",
+  "author": "Truyen Audio",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "vn.truyenaudio.desktop",
+    "productName": "Truyen Audio",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": ["nsis"],
+      "artifactName": "Truyen-Audio-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Truyen Audio"
+    }
+  }
+}

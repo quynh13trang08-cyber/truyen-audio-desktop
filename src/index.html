@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>Truyện Audio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">♫</div>
+        <div><div class="brand-name">TRUYỆN AUDIO</div><div class="brand-sub">Your personal audiobook library</div></div>
+      </div>
+      <div class="side-label">KHÔNG GIAN CỦA BẠN</div>
+      <nav class="nav-list" aria-label="Điều hướng chính">
+        <button class="nav-btn active" data-view="library"><span>▤</span> Thư viện</button>
+        <button class="nav-btn" data-view="add"><span>＋</span> Thêm truyện</button>
+        <button class="nav-btn" data-view="listen"><span>♫</span> Đang nghe</button>
+        <button class="nav-btn" data-view="settings"><span>⚙</span> Cài đặt</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="offline-pill"><span class="pulse"></span> Hoạt động ngoại tuyến</div>
+        <p>Truyện và tiến độ được lưu trên máy tính này.</p>
+        <div class="version">TRUYỆN AUDIO · DESKTOP 1.0</div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow" id="topEyebrow">THƯ VIỆN CỦA BẠN</div>
+          <h1 id="topTitle">Thư viện truyện</h1>
+        </div>
+        <div class="top-actions">
+          <span class="status"><span class="status-dot"></span> Sẵn sàng</span>
+          <button class="ghost-btn" id="themeToggle" type="button">☼ Giao diện</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-library">
+        <div class="welcome-card">
+          <div class="welcome-copy">
+            <div class="eyebrow">KHÔNG GIAN ĐỌC CỦA BẠN</div>
+            <h2>Thư viện truyện</h2>
+            <p>Lưu truyện yêu thích và tiếp tục nghe bất cứ lúc nào.</p>
+          </div>
+          <div class="stats-grid">
+            <div class="stat"><strong id="statStories">0</strong><span>Truyện</span></div>
+            <div class="stat"><strong id="statWords">0</strong><span>Chữ</span></div>
+            <div class="stat"><strong id="statProgress">0</strong><span>Đang nghe</span></div>
+          </div>
+        </div>
+        <div class="section-row">
+          <div><h2>Kho truyện của bạn</h2><p class="muted">Các truyện đã lưu trên thiết bị</p></div>
+          <button class="primary-btn" data-go="add" type="button">＋ Thêm truyện</button>
+        </div>
+        <div class="search-wrap"><span>⌕</span><input id="searchInput" type="search" placeholder="Tìm tên truyện..." autocomplete="off" /></div>
+        <div class="story-grid" id="storyGrid"></div>
+        <div class="empty-state" id="emptyLibrary"><div class="empty-icon">♫</div><h3>Thư viện đang trống</h3><p>Thêm một truyện TXT hoặc dán nội dung để bắt đầu nghe.</p><button class="primary-btn" data-go="add" type="button">＋ Thêm truyện đầu tiên</button></div>
+      </section>
+
+      <section class="view" id="view-add">
+        <div class="panel-card add-card">
+          <div class="eyebrow">BẮT ĐẦU MỘT CÂU CHUYỆN MỚI</div>
+          <h2>Thêm truyện vào thư viện</h2>
+          <p class="muted">Chọn tệp văn bản, dán nội dung hoặc thử nhập từ một website công khai.</p>
+          <div class="form-group"><label for="storyTitle">Tên truyện</label><input id="storyTitle" type="text" placeholder="Ví dụ: Người đi tìm bình minh" maxlength="160" /></div>
+          <div class="source-tabs">
+            <button class="source-tab active" data-source="file" type="button">▧ Tải tệp TXT</button>
+            <button class="source-tab" data-source="paste" type="button">▤ Dán nội dung</button>
+            <button class="source-tab" data-source="url" type="button">↗ Đường dẫn website</button>
+          </div>
+          <div class="source-pane active" id="source-file">
+            <div class="file-drop" id="fileDrop"><div class="file-icon">TXT</div><strong id="fileName">Chưa chọn tệp truyện</strong><span>Hỗ trợ .txt, .md, .text · Tối đa 20 MB</span><button class="outline-btn" id="chooseFile" type="button">Chọn tệp từ máy tính</button></div>
+          </div>
+          <div class="source-pane" id="source-paste">
+            <label class="field-label" for="pastedText">Nội dung truyện</label><textarea id="pastedText" rows="12" placeholder="Dán nội dung truyện vào đây..."></textarea>
+          </div>
+          <div class="source-pane" id="source-url">
+            <label class="field-label" for="storyUrl">Địa chỉ website</label>
+            <div class="url-row"><input id="storyUrl" type="url" placeholder="https://example.com/truyen..." /><button class="outline-btn" id="fetchUrl" type="button">Lấy nội dung</button></div>
+            <p class="hint">Chỉ nhập được trang công khai cho phép truy cập tự động. Trang có đăng nhập, chống bot hoặc tải nội dung bằng JavaScript có thể không đọc được.</p>
+          </div>
+          <div class="form-footer"><span class="hint" id="addStatus">Truyện được lưu cục bộ trên máy, không cần Internet để nghe.</span><button class="primary-btn" id="saveStory" type="button">Lưu vào thư viện</button></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-listen">
+        <div class="listen-layout">
+          <div class="player-card">
+            <div class="player-topline"><span class="eyebrow">TRÌNH PHÁT TRUYỆN</span><button class="icon-btn" id="focusMode" title="Chế độ nghe toàn màn hình" type="button">⛶</button></div>
+            <div class="cover-art"><div class="cover-note">♫</div><div class="cover-caption">TRUYỆN AUDIO</div></div>
+            <div class="now-title" id="nowTitle">Chưa chọn truyện</div>
+            <div class="now-sub" id="nowMeta">Chọn một truyện trong thư viện để bắt đầu nghe.</div>
+            <div class="progress-area">
+              <input class="progress-slider" id="progressSlider" type="range" min="0" max="1000" value="0" aria-label="Vị trí nghe" />
+              <div class="time-row"><span id="progressPercent">0%</span><span id="progressChars">0 / 0 ký tự</span></div>
+            </div>
+            <div class="transport">
+              <button class="round-control" id="previousChapter" title="Chương trước" type="button">|◀</button>
+              <button class="round-control skip" id="back10" title="Lùi khoảng 10 giây" type="button">↶<small>10</small></button>
+              <button class="play-control" id="playPause" title="Phát" type="button">▶</button>
+              <button class="round-control skip" id="forward10" title="Tiến khoảng 10 giây" type="button">↷<small>10</small></button>
+              <button class="round-control" id="nextChapter" title="Chương tiếp" type="button">▶|</button>
+            </div>
+            <div class="player-settings">
+              <div class="setting-line"><label for="voiceSelect">Giọng đọc</label><select id="voiceSelect"><option value="">Đang tải giọng đọc...</option></select></div>
+              <div class="setting-line"><label for="rateSlider">Tốc độ <strong id="rateValue">1.0×</strong></label><input id="rateSlider" type="range" min="0.6" max="1.8" step="0.1" value="1" /></div>
+            </div>
+            <div class="chapter-line"><label for="chapterSelect">Chương / phần</label><select id="chapterSelect"><option value="0">Toàn bộ truyện</option></select></div>
+          </div>
+          <div class="reading-card" id="readingCard">
+            <div class="reading-head"><div><div class="eyebrow">NỘI DUNG ĐANG NGHE</div><h2 id="readingTitle">Chưa chọn truyện</h2></div><button class="ghost-btn" id="backLibrary" type="button">← Thư viện</button></div>
+            <div class="reading-content" id="readingContent"><div class="reading-placeholder"><span>♫</span><p>Nội dung truyện sẽ hiển thị tại đây.</p></div></div>
+          </div>
+        </div>
+        <div class="focus-exit" id="focusExit"><button class="ghost-btn" id="exitFocus" type="button">Thu nhỏ chế độ nghe ✕</button></div>
+      </section>
+
+      <section class="view" id="view-settings">
+        <div class="panel-card settings-card">
+          <div class="eyebrow">TÙY CHỈNH TRẢI NGHIỆM</div><h2>Cài đặt</h2>
+          <div class="settings-block"><h3>Giọng đọc</h3><p class="muted">Ứng dụng dùng bộ đọc giọng nói tích hợp của Windows/Chromium. Không gửi nội dung truyện lên máy chủ.</p><div class="setting-line"><label for="settingsVoice">Giọng tiếng Việt</label><select id="settingsVoice"><option value="">Tự động chọn</option></select></div><p class="hint" id="voiceHelp">Nếu không có giọng tiếng Việt, hãy cài thêm giọng đọc tiếng Việt trong cài đặt Windows.</p></div>
+          <div class="settings-block"><h3>Giao diện</h3><div class="setting-line"><label for="themeSelect">Màu giao diện</label><select id="themeSelect"><option value="dark">Tối</option><option value="light">Sáng</option></select></div></div>
+          <div class="settings-block"><h3>Dữ liệu</h3><p class="muted">Thư viện và vị trí nghe được lưu trong hồ sơ người dùng Windows của ứng dụng.</p><button class="outline-btn danger-outline" id="clearLibrary" type="button">Xóa toàn bộ thư viện trên máy này</button></div>
+          <div class="settings-block"><h3>Thông tin</h3><p class="muted">Truyện Audio Desktop 1.0 · Hoạt động ngoại tuyến sau khi cài đặt. Tính năng nhập website cần Internet.</p></div>
+        </div>
+      </section>
+
+      <footer class="mini-player" id="miniPlayer">
+        <div class="mini-art">♫</div><div class="mini-info"><strong id="miniTitle">Chưa phát truyện</strong><span id="miniSub">Sẵn sàng nghe</span></div>
+        <button class="mini-play" id="miniPlay" type="button" title="Phát / tạm dừng">▶</button>
+      </footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="renderer.js"></script>
+</body>
+</html>
