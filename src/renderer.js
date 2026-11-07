@@ -66,6 +66,7 @@ function renderLibrary() {
   const filtered = state.library.filter(item => item.title.toLocaleLowerCase('vi').includes(query));
   $('statStories').textContent = state.library.length;
   $('statWords').textContent = state.library.reduce((sum, item) => sum + wordCount(item.content), 0).toLocaleString('vi-VN');
+  if ($('appendTargetStory')) refreshAppendTargetOptions();
   $('statProgress').textContent = state.library.filter(item => (item.progress || 0) > 0).length;
   const grid = $('storyGrid');
   grid.replaceChildren();
@@ -150,18 +151,20 @@ function continueAfterChunk(callback) {
 }
 
 function findChapters(text) {
-  const chapters = [{ title: 'Bắt đầu truyện', start: 0 }];
-  const lines = text.split(/\n/);
+  const chapters = [];
+  const lines = String(text || '').split(/\n/);
   let offset = 0;
-  const pattern = /^\s*((chương|chapter|hồi|phần|quyển|tập)\s+[^\n]{1,90})\s*$/i;
+  const pattern = /^\s*(?:#{1,6}\s*)?((chương|chapter|hồi|phần|quyển|tập)\s+[^\n]{1,100})\s*$/iu;
   for (const line of lines) {
     const match = line.match(pattern);
-    if (match && offset > 0) {
-      chapters.push({ title: line.trim(), start: offset });
-    }
+    if (match) chapters.push({ title: match[1].trim(), start: offset });
     offset += line.length + 1;
   }
-  return chapters.length > 1 ? chapters : [{ title: 'Toàn bộ truyện', start: 0 }];
+  if (chapters.length) {
+    if (chapters[0].start > 0) chapters.unshift({ title: 'Phần mở đầu', start: 0 });
+    return chapters;
+  }
+  return [{ title: 'Toàn bộ truyện', start: 0 }];
 }
 
 function renderReadingContent(story) {
@@ -801,6 +804,134 @@ function jumpChapter(delta) {
   seekTo(state.chapters[next].start);
 }
 
+
+function refreshAppendTargetOptions() {
+  const select = $('appendTargetStory');
+  const previous = select.value;
+  select.replaceChildren();
+  state.library.forEach(story => {
+    const option = document.createElement('option');
+    option.value = story.id;
+    option.textContent = `${story.title} · ${ImportUtils.countChapters(story.content)} chương/phần`;
+    select.append(option);
+  });
+  if (state.library.some(story => story.id === previous)) select.value = previous;
+  else if (state.activeId && state.library.some(story => story.id === state.activeId)) select.value = state.activeId;
+  else if (state.library.length) select.value = state.library[0].id;
+}
+
+function refreshFileImportOptions() {
+  const options = $('fileImportOptions');
+  const isFilePane = currentSource() === 'file';
+  options.hidden = !state.pendingFile || !isFilePane;
+  $('saveStory').disabled = false;
+  const appendMode = $('fileImportMode').value === 'append';
+  $('storyTitleGroup').hidden = appendMode && isFilePane;
+  $('appendTargetWrap').hidden = !appendMode;
+  $('duplicateModeWrap').hidden = !appendMode;
+  $('saveStory').textContent = appendMode && isFilePane ? 'Bổ sung chương vào truyện' : 'Lưu vào thư viện';
+  if (!appendMode || !state.pendingFile) {
+    $('appendImportPreview').textContent = state.pendingFile
+      ? `Đã chọn file “${state.pendingFile.name}”. Nội dung sẽ được dùng để tạo một truyện mới.`
+      : 'Chọn file TXT để xem trước nội dung.';
+    return;
+  }
+
+  refreshAppendTargetOptions();
+  const target = state.library.find(story => story.id === $('appendTargetStory').value);
+  if (!target) {
+    $('appendImportPreview').textContent = 'Thư viện chưa có truyện. Hãy tạo truyện trước khi bổ sung chương.';
+    $('saveStory').disabled = true;
+    return;
+  }
+  $('saveStory').disabled = false;
+  try {
+    const incoming = applyReplacementRules(state.pendingFile.content.trim());
+    const plan = ImportUtils.appendChapters(target.content, incoming, {
+      duplicateMode: $('duplicateChapterMode').value,
+      fallbackTitle: state.pendingFile.name
+    });
+    const lines = [
+      `Truyện đích: ${target.title}`,
+      `Số chương/phần trong file: ${plan.incomingCount}`,
+      `Sẽ thêm mới: ${plan.addedCount}`,
+      `Sẽ thay thế: ${plan.replacedCount}`,
+      `Bỏ qua do trùng: ${plan.duplicateCount}`
+    ];
+    if (plan.sortedByChapterNumber) lines.push('Các chương được sắp xếp theo số chương.');
+    plan.warnings.forEach(warning => lines.push(`Lưu ý: ${warning}`));
+    $('appendImportPreview').textContent = lines.join('\n');
+    $('saveStory').disabled = plan.addedCount + plan.replacedCount === 0;
+  } catch (error) {
+    $('appendImportPreview').textContent = error.message;
+    $('saveStory').disabled = true;
+  }
+}
+
+function appendFileToExistingStory() {
+  if (!state.pendingFile) { toast('Hãy chọn file TXT trước.'); return false; }
+  const target = state.library.find(story => story.id === $('appendTargetStory').value);
+  if (!target) { toast('Hãy chọn truyện cần bổ sung.'); return false; }
+  const incoming = applyReplacementRules(state.pendingFile.content.trim());
+  let plan;
+  try {
+    plan = ImportUtils.appendChapters(target.content, incoming, {
+      duplicateMode: $('duplicateChapterMode').value,
+      fallbackTitle: state.pendingFile.name
+    });
+  } catch (error) { toast(error.message); return false; }
+  if (plan.addedCount + plan.replacedCount === 0) {
+    toast('Không có chương mới để bổ sung. Các chương trong file đều đã tồn tại hoặc bị bỏ qua.');
+    return false;
+  }
+  if (plan.content.length > 15 * 1024 * 1024) {
+    toast('Sau khi bổ sung, truyện vượt giới hạn 15 MB. Hãy chia file thành các phần nhỏ hơn.');
+    return false;
+  }
+
+  const summary = `Bổ sung vào “${target.title}”\n\nThêm mới: ${plan.addedCount}\nThay thế: ${plan.replacedCount}\nBỏ qua do trùng: ${plan.duplicateCount}${plan.warnings.length ? `\n\n${plan.warnings.join('\n')}` : ''}\n\nTiếp tục?`;
+  if (!confirm(summary)) return false;
+
+  const oldContent = target.content;
+  const oldProgress = Number(target.progress) || 0;
+  const wasPlayingTarget = state.activeId === target.id && state.isPlaying;
+  if (wasPlayingTarget) stopSpeech(false);
+  if (!Array.isArray(target.editHistory)) target.editHistory = [];
+  target.editHistory.push({ content: oldContent, progress: oldProgress, action: 'Trước khi bổ sung chương', at: new Date().toISOString() });
+  if (target.editHistory.length > 30) target.editHistory.splice(0, target.editHistory.length - 30);
+  target.content = plan.content;
+  target.progress = Math.min(oldProgress, target.content.length);
+  target.updatedAt = new Date().toISOString();
+
+  if (state.activeId === target.id) {
+    state.position = target.progress;
+    state.chapters = findChapters(target.content);
+    state.chunks = splitIntoChunks(target.content, 230, chapterBoundaries());
+    $('nowMeta').textContent = `${wordCount(target.content).toLocaleString('vi-VN')} từ · Đã lưu trên thiết bị`;
+    renderReadingContent(target);
+    $('undoEdit').disabled = !target.editHistory.length;
+    renderChapters();
+    updateProgress();
+    updateReplacementPreview();
+    if (wasPlayingTarget) speakFrom(state.position);
+  }
+
+  state.pendingFile = null;
+  $('fileName').textContent = 'Chưa chọn tệp truyện';
+  $('fileImportOptions').hidden = true;
+  $('fileImportMode').value = 'new';
+  $('storyTitleGroup').hidden = false;
+  $('storyTitle').value = '';
+  $('saveStory').textContent = 'Lưu vào thư viện';
+  $('saveStory').disabled = false;
+  $('addStatus').textContent = `Đã bổ sung ${plan.addedCount} chương, thay ${plan.replacedCount} chương vào “${target.title}”.`;
+  persistNow();
+  renderLibrary();
+  refreshAppendTargetOptions();
+  toast(`Đã cập nhật “${target.title}”: thêm ${plan.addedCount}, thay ${plan.replacedCount}, bỏ qua ${plan.duplicateCount} chương.`);
+  return true;
+}
+
 function addStory(title, content, source) {
   const clean = applyReplacementRules(String(content || '').trim());
   if (clean.length < 2) { toast('Nội dung truyện đang trống.'); return false; }
@@ -817,6 +948,7 @@ function addStory(title, content, source) {
   state.pendingFile = null; state.pendingUrl = null;
   $('storyTitle').value = ''; $('pastedText').value = ''; $('storyUrl').value = '';
   $('fileName').textContent = 'Chưa chọn tệp truyện'; $('addStatus').textContent = 'Truyện đã được thêm vào thư viện.';
+  $('fileImportOptions').hidden = true; $('fileImportMode').value = 'new'; $('storyTitleGroup').hidden = false; $('saveStory').textContent = 'Lưu vào thư viện'; $('saveStory').disabled = false;
   persistNow(); renderLibrary(); openStory(item.id, true);
   toast('Đã lưu truyện vào máy tính.');
   return true;
@@ -829,6 +961,7 @@ function currentSource() {
 function setSource(source) {
   document.querySelectorAll('.source-tab').forEach(button => button.classList.toggle('active', button.dataset.source === source));
   document.querySelectorAll('.source-pane').forEach(pane => pane.classList.toggle('active', pane.id === `source-${source}`));
+  if ($('fileImportOptions')) refreshFileImportOptions();
 }
 
 function exitFocusMode() {
@@ -929,8 +1062,13 @@ async function init() {
       $('fileName').textContent = result.name;
       $('storyTitle').value = result.name;
       $('addStatus').textContent = `Đã đọc ${result.content.length.toLocaleString('vi-VN')} ký tự từ tệp.`;
+      refreshFileImportOptions();
     } catch (error) { toast(error.message); }
   });
+  $('fileImportMode').addEventListener('change', refreshFileImportOptions);
+  $('appendTargetStory').addEventListener('change', refreshFileImportOptions);
+  $('duplicateChapterMode').addEventListener('change', refreshFileImportOptions);
+
   $('fetchUrl').addEventListener('click', async () => {
     const url = $('storyUrl').value.trim();
     if (!url) { toast('Nhập địa chỉ website trước.'); return; }
@@ -947,6 +1085,10 @@ async function init() {
   });
   $('saveStory').addEventListener('click', () => {
     const source = currentSource();
+    if (source === 'file' && $('fileImportMode').value === 'append') {
+      appendFileToExistingStory();
+      return;
+    }
     let content = '', title = $('storyTitle').value.trim(), origin = source;
     if (source === 'file') {
       if (!state.pendingFile) { toast('Hãy chọn tệp TXT trước.'); return; }

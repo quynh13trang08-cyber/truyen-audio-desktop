@@ -67,7 +67,7 @@
           <div class="eyebrow">BẮT ĐẦU MỘT CÂU CHUYỆN MỚI</div>
           <h2>Thêm truyện vào thư viện</h2>
           <p class="muted">Chọn tệp văn bản, dán nội dung hoặc thử nhập từ một website công khai.</p>
-          <div class="form-group"><label for="storyTitle">Tên truyện</label><input id="storyTitle" type="text" placeholder="Ví dụ: Người đi tìm bình minh" maxlength="160" /></div>
+          <div class="form-group" id="storyTitleGroup"><label for="storyTitle">Tên truyện</label><input id="storyTitle" type="text" placeholder="Ví dụ: Người đi tìm bình minh" maxlength="160" /></div>
           <div class="source-tabs">
             <button class="source-tab active" data-source="file" type="button">▧ Tải tệp TXT</button>
             <button class="source-tab" data-source="paste" type="button">▤ Dán nội dung</button>
@@ -75,6 +75,12 @@
           </div>
           <div class="source-pane active" id="source-file">
             <div class="file-drop" id="fileDrop"><div class="file-icon">TXT</div><strong id="fileName">Chưa chọn tệp truyện</strong><span>Hỗ trợ .txt, .md, .text · Tối đa 20 MB</span><button class="outline-btn" id="chooseFile" type="button">Chọn tệp từ máy tính</button></div>
+            <div class="import-options" id="fileImportOptions" hidden>
+              <div class="import-option-row"><label for="fileImportMode">Cách nhập file này</label><select id="fileImportMode"><option value="new">Tạo truyện mới</option><option value="append">Bổ sung chương vào truyện có sẵn</option></select></div>
+              <div class="import-option-row" id="appendTargetWrap" hidden><label for="appendTargetStory">Chọn truyện cần bổ sung</label><select id="appendTargetStory"></select></div>
+              <div class="import-option-row" id="duplicateModeWrap" hidden><label for="duplicateChapterMode">Khi trùng tên chương nhưng nội dung khác</label><select id="duplicateChapterMode"><option value="skip">Giữ chương cũ, bỏ qua chương trong file</option><option value="replace">Thay chương cũ bằng nội dung trong file</option></select></div>
+              <div class="import-preview" id="appendImportPreview">Chọn cách nhập để xem trước.</div>
+            </div>
           </div>
           <div class="source-pane" id="source-paste">
             <label class="field-label" for="pastedText">Nội dung truyện</label><textarea id="pastedText" rows="12" placeholder="Dán nội dung truyện vào đây..."></textarea>
@@ -134,7 +140,7 @@
           <div class="settings-block"><h3>Giao diện</h3><div class="setting-line"><label for="themeSelect">Màu giao diện</label><select id="themeSelect"><option value="dark">Tối</option><option value="light">Sáng</option></select></div></div>
           <div class="settings-block"><h3>Từ điển thay thế</h3><p class="muted">Các quy tắc này tự áp dụng cho nội dung truyện mới được thêm vào sau này. Có thể xóa quy tắc bất cứ lúc nào.</p><div class="rule-form"><input id="replacementFrom" type="text" placeholder="Từ/cụm từ cần thay" maxlength="120"/><input id="replacementTo" type="text" placeholder="Thay bằng" maxlength="120"/><button class="outline-btn" id="addReplacementRule" type="button">＋ Thêm quy tắc</button></div><div id="replacementRuleList" class="replacement-rule-list"></div><div class="rule-apply-row"><button class="outline-btn" id="applyRulesCurrentStory" type="button">Áp dụng tất cả quy tắc cho truyện đang mở</button><span class="hint" id="replacementPreview">Mở một truyện để xem trước.</span></div></div>
           <div class="settings-block"><h3>Xuất dữ liệu</h3><p class="muted">Có thể xuất ZIP để khôi phục trên Android hoặc xuất TXT để đọc và lưu trữ. Nội dung TXT sử dụng bản truyện hiện tại đã chỉnh sửa; audio không được xuất.</p><div class="export-format-options"><label class="export-option"><input id="exportZipOption" type="checkbox" checked><span><strong>ZIP</strong><small>Sao lưu thư viện và cài đặt để Android khôi phục.</small></span></label><label class="export-option"><input id="exportTxtOption" type="checkbox" checked><span><strong>TXT</strong><small>Xuất nội dung truyện đã chỉnh sửa, mã hóa UTF-8.</small></span></label></div><div class="setting-line"><label for="txtExportMode">Cách xuất TXT</label><select id="txtExportMode"><option value="individual">Mỗi truyện một file TXT</option><option value="combined">Gộp tất cả truyện vào một file TXT</option></select></div><div class="key-actions"><button class="outline-btn" id="exportSelected" type="button">Xuất định dạng đã chọn</button><button class="outline-btn danger-outline" id="clearLibrary" type="button">Xóa toàn bộ thư viện trên máy này</button></div><p class="hint" id="backupStatus"></p></div>
-          <div class="settings-block"><h3>Thông tin</h3><p class="muted">Truyện Audio Desktop 1.4.2 · Chế độ Windows có thể hoạt động ngoại tuyến. Tính năng nhập website cần Internet.</p></div>
+          <div class="settings-block"><h3>Thông tin</h3><p class="muted">Truyện Audio Desktop 1.4.3 · Chế độ Windows có thể hoạt động ngoại tuyến. Tính năng nhập website cần Internet.</p></div>
         </div>
       </section>
 
@@ -153,6 +159,7 @@
     </div>
   </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="import-utils.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

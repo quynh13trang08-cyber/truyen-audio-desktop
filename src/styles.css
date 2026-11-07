@@ -23,3 +23,14 @@
 .export-option input { margin-top: 3px; accent-color: var(--accent, #78a9ff); }
 .export-option span { display: grid; gap: 3px; }
 .export-option small { color: var(--muted, #9aa8b8); line-height: 1.45; }
+
+/* Import TXT: create a new story or append chapters to an existing one */
+.import-options{display:grid;gap:12px;margin-top:14px;padding:15px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.import-options[hidden],.import-option-row[hidden]{display:none}
+.import-option-row{display:grid;grid-template-columns:minmax(180px,1fr) minmax(220px,1.3fr);align-items:center;gap:12px}
+.import-option-row label{font-size:12px;font-weight:650;color:var(--text)}
+.import-option-row select{width:100%;min-width:0;padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--text);font:inherit;font-size:12px}
+.import-preview{padding:11px 13px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--muted);font-size:12px;line-height:1.65;white-space:pre-line}
+.import-preview strong{color:var(--text)}
+.light .import-option-row select,.light .import-preview{background:#fff;color:#33445a;border-color:#dce4ee}
+@media(max-width:800px){.import-option-row{grid-template-columns:1fr;gap:6px}}
