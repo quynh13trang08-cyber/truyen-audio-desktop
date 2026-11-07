@@ -1,107 +1,72 @@
-# Truyện Audio Desktop
+# Truyện Audio Desktop 1.4
 
-Ứng dụng Windows nghe truyện văn bản, thiết kế theo bản Truyện Audio trên trình duyệt đã trao đổi. Thư viện và chế độ đọc Windows hoạt động cục bộ. Chế độ Google TTS và chức năng lấy nội dung từ website cần Internet.
+Ứng dụng Electron nghe truyện văn bản trên Windows. Thư viện lưu cục bộ trên máy; không yêu cầu máy chủ riêng, đồng bộ Wi-Fi hay dịch vụ Cloud để dùng các chức năng cơ bản.
 
-## Chức năng trong bản 1.3
+## Chức năng trong bản 1.4
 
-- Nhập truyện từ tệp TXT, MD hoặc TEXT; dán văn bản; hoặc thử lấy văn bản từ URL website công khai.
-- Đọc bằng Speech Synthesis tích hợp trong Chromium/Electron, sử dụng các giọng hệ thống mà Windows cung cấp.
-- Chọn giọng đọc, điều chỉnh tốc độ 0.6×–1.8×, phát, tạm dừng, tiếp tục.
-- Tua trước/lùi khoảng 10 giây bằng ước lượng ký tự/giây. Web Speech/Speech Synthesis không cung cấp timeline âm thanh chính xác, nên thao tác này là gần đúng chứ không phải tua âm thanh tuyệt đối.
-- Tự nhận diện các tiêu đề theo mẫu “Chương”, “Chapter”, “Hồi”, “Phần”, “Quyển”, “Tập” để nhảy chương nếu văn bản có tiêu đề riêng dòng.
-- Lưu thư viện, cài đặt và vị trí nghe trong thư mục dữ liệu người dùng Windows; dữ liệu còn sau khi đóng ứng dụng.
+- Nhập truyện từ TXT/MD/TEXT, dán văn bản hoặc nhập từ URL website công khai.
+- Khi nhập URL, ứng dụng dùng Cheerio để tìm vùng nội dung chương có dấu hiệu ngữ nghĩa (chapter/reader/content/article...). Các khối điều hướng, quảng cáo, bình luận, sidebar, chương liên quan và chân trang phổ biến được loại bỏ. Nếu không xác định được vùng nội dung đủ tin cậy, ứng dụng báo lỗi thay vì lấy toàn bộ trang.
+- Đọc bằng giọng Windows có sẵn hoặc Google Cloud TTS (Google Standard / Chirp 3 HD).
+- Tốc độ đọc 0.6×–2.5×; lưu mức tốc độ đã chọn.
+- Nhảy chương, tua tương đối, lưu tiến độ và tự chuyển chương sau 2 giây.
+- Chỉnh sửa toàn bộ truyện hoặc riêng từng đoạn văn.
+- Tìm và thay thế không phân biệt hoa/thường trên toàn bộ truyện hoặc chương đang chọn; có xem trước số vị trí bị ảnh hưởng.
+- Từ điển thay thế hỗ trợ thêm/sửa/xóa nhiều quy tắc; tự áp dụng cho truyện mới và có thể xem trước số vị trí rồi áp dụng tất cả quy tắc cho truyện đang mở.
+- Lưu lịch sử chỉnh sửa tối đa 30 bước cho mỗi truyện và hỗ trợ hoàn tác.
+- Xuất bản sao lưu ZIP cục bộ, gồm `backup.json` chứa thư viện, nội dung, lịch sử sửa, cài đặt và quy tắc thay thế. ZIP không chứa file audio/cache.
 - Giao diện tối/sáng và chế độ nghe tập trung.
-- Tự động chuyển sang chương tiếp theo sau khi hết chương, nghỉ 2 giây; có thể bật/tắt trong Cài đặt.
 
-## Giới hạn cần biết
+## Lưu ý khi nhập website
 
-- Đây là bộ đọc giọng nói có sẵn của Windows/Chromium, không phải dịch vụ giọng AI đám mây. Chất lượng và việc có tiếng Việt hay không phụ thuộc gói giọng Windows được cài trên máy.
-- Nếu danh sách giọng không có tiếng Việt, vào **Cài đặt Windows → Thời gian & ngôn ngữ → Ngôn ngữ & khu vực → Tùy chọn ngôn ngữ** và cài thành phần giọng nói tiếng Việt nếu Windows cung cấp cho phiên bản của bạn. Khởi động lại ứng dụng sau khi cài.
-- Nhập URL chỉ hoạt động với trang công khai trả về HTML/văn bản. Website yêu cầu đăng nhập, chống bot hoặc dựng nội dung hoàn toàn bằng JavaScript có thể không lấy được.
-- Chỉ nhập TXT/MD/TEXT ở bản này. PDF/EPUB chưa được tích hợp trong bản Desktop này.
-- Không có OCR cho tài liệu scan/ảnh.
+- Chỉ hỗ trợ trang công khai trả về HTML/văn bản. Trang yêu cầu đăng nhập, chống bot hoặc dựng nội dung hoàn toàn bằng JavaScript có thể không lấy được.
+- Bộ trích xuất ưu tiên các vùng có selector/ngữ nghĩa của chương truyện. Không có cơ chế dự phòng lấy cả `body`.
+- Mỗi website có cấu trúc riêng; vẫn cần thử với các trang bạn thường đọc để bổ sung selector cụ thể nếu cần.
 
-## Tạo file cài đặt Windows bằng GitHub Actions (không cần biên dịch trên PC 4 GB RAM)
+## Tạo file cài đặt Windows bằng GitHub Actions
 
-1. Tạo một repository GitHub mới, để ở chế độ **Private** nếu muốn giữ mã nguồn riêng.
-2. Giải nén ZIP dự án này trên máy.
-3. Đưa toàn bộ nội dung thư mục vào repository, bao gồm cả thư mục ẩn `.github/workflows` và tệp `package.json` ở thư mục gốc. Có thể dùng GitHub Desktop hoặc Git để tải mã nguồn lên repository.
-4. Mở thẻ **Actions** của repository. Workflow **Build Truyen Audio for Windows** sẽ tự chạy khi có commit lên nhánh `main`/`master`; cũng có thể chọn **Run workflow** để chạy thủ công.
-5. Chờ workflow chạy xong với trạng thái dấu tích xanh. Mở lần chạy đó, kéo xuống **Artifacts**, tải `Truyen-Audio-Windows-Installer.zip` và giải nén.
-6. Chạy file `Truyen-Audio-Setup-1.3.0.exe` trên Windows để cài. Chế độ Windows có thể nghe offline; hai chế độ Google cần Internet.
-
-Nếu workflow báo lỗi, mở lần chạy → bước bị lỗi → sao chép phần log màu đỏ để kiểm tra. File `.exe` chưa nằm sẵn trong ZIP mã nguồn; nó được tạo ở bước build trên GitHub Actions.
-
-GitHub Actions sẽ tải các gói Electron cần thiết khi biên dịch. Không cần cài Android Studio. Không nên cố biên dịch Electron trên máy chỉ có 4 GB RAM.
+1. Giải nén thư mục `TruyenAudioDesktop` và đưa toàn bộ nội dung vào repository GitHub riêng (có thể để Private).
+2. Giữ thư mục ẩn `.github/workflows` và file `package.json` ở thư mục gốc.
+3. Mở tab **Actions** → workflow **Build Truyen Audio for Windows** → **Run workflow**, hoặc đẩy commit lên `main`/`master` để workflow tự chạy.
+4. Khi build thành công, tải artifact `Truyen-Audio-Windows-Installer`, giải nén và chạy `Truyen-Audio-Setup-1.4.0.exe`.
+5. Workflow cài các dependency trong `package.json`, kiểm tra cú pháp JavaScript rồi đóng gói NSIS.
 
 ## Chạy thử khi có Node.js
 
-Yêu cầu Node.js 22 trở lên và kết nối Internet trong lần cài thư viện đầu tiên:
+Yêu cầu Node.js 22 trở lên và kết nối Internet trong lần cài thư viện:
 
 ```bash
 npm install
 npm start
 ```
 
-Tạo bộ cài Windows trên máy Windows:
+Tạo bộ cài Windows trên Windows:
 
 ```bash
 npm run dist:win
 ```
 
-File cài đặt được tạo trong thư mục `dist/`.
+## Dữ liệu và sao lưu
 
-## Dữ liệu được lưu ở đâu?
+Ứng dụng lưu `library.json`, thông tin xác thực Google đã mã hóa và bộ nhớ đệm âm thanh trong thư mục dữ liệu riêng của Truyện Audio dưới hồ sơ người dùng Windows (`app.getPath('userData')`). Dùng **Cài đặt → Dữ liệu → Xuất bản sao lưu ZIP** để tạo ZIP mà bạn có thể tự chép lên Drive hoặc thiết bị lưu trữ khác.
 
-Ứng dụng ghi `library.json`, thông tin xác thực Google đã mã hóa và bộ nhớ đệm âm thanh trong thư mục dữ liệu riêng của Truyện Audio dưới hồ sơ người dùng Windows (Electron `app.getPath('userData')`). Sao lưu thư mục này để giữ thư viện khi cài lại Windows.
+Bản 1.4 chỉ triển khai xuất dữ liệu; không có chức năng nhập ZIP, đồng bộ Wi-Fi hoặc đồng bộ Cloud tự động. Tích hợp Google Drive API có thể bổ sung sau khi app ổn định.
 
-## Trạng thái kiểm tra của gói mã nguồn
+## Google Text-to-Speech
 
-- Đã kiểm tra cú pháp JavaScript bằng `node --check` cho `main.js`, `preload.js` và `renderer.js`.
-- Đã kiểm thử API đồng bộ cục bộ: ghép nối PIN, xác thực token, lấy danh sách truyện, tải nội dung và ngắt máy chủ.
-- Đã rà soát cấu hình đóng gói Windows và workflow GitHub Actions.
-- Chưa thể xác nhận chạy thực tế hoặc tạo bộ cài `.exe` trong môi trường hiện tại vì bước tải thư viện npm bị hết thời gian chờ. Cần chạy workflow trên GitHub để tạo và kiểm thử bộ cài trên Windows.
+- **Windows**: dùng giọng hệ thống, có thể hoạt động offline.
+- **Google truyền thống**: Google Cloud Standard.
+- **Google AI**: Google Cloud Chirp 3 HD.
+
+Kết nối Google TTS cần một Google Cloud project, bật Cloud Text-to-Speech API và OAuth Client ID loại Desktop. Google Cloud có thể yêu cầu billing; hãy kiểm tra hạn mức và giá hiện hành trước khi dùng dài ngày. Nội dung truyện được gửi tới Google khi chọn bộ đọc Google.
+
+## Trạng thái kiểm tra của gói nguồn
+
+- Đã chạy `node --check` cho `src/main.js`, `src/preload.js` và `src/renderer.js`.
+- Đã tạo ZIP mẫu bằng hàm đóng gói của ứng dụng và kiểm tra thành công bằng Python `zipfile`.
+- Chưa chạy được ứng dụng Electron/đóng gói `.exe` trong môi trường này vì chưa cài các dependency Electron/Cheerio và chưa có môi trường Windows để kiểm tra UI, TTS hoặc website thật. Cần build qua GitHub Actions và thử trên PC Windows trước khi coi là đã hoàn tất.
 
 ## Ghi chú kỹ thuật
 
-- Electron + HTML/CSS/JavaScript thuần.
-- Tách tiến trình giao diện và tiến trình chính bằng preload, `contextIsolation` bật, `nodeIntegration` tắt.
-- Phiên bản Electron được ghim ở 45.2.3; electron-builder 26.18.0.
-
-## Google Text-to-Speech (giữ nguyên từ bản 1.2)
-
-Ứng dụng có ba chế độ đọc:
-- **Windows**: dùng giọng đã cài trên Windows, chạy ngoại tuyến.
-- **Google truyền thống**: Google Cloud Standard (tiếng Việt A/B/C/D).
-- **Google AI**: Google Cloud Chirp 3 HD (nhiều giọng nam/nữ tiếng Việt).
-
-### Kết nối Google Cloud
-
-1. Tạo hoặc chọn một Google Cloud project.
-2. Bật **Cloud Text-to-Speech API** và bảo đảm project có cấu hình thanh toán. Google có hạn mức miễn phí theo tháng, nhưng vẫn yêu cầu bật billing; phần vượt hạn mức sẽ bị tính phí.
-3. Tạo OAuth Client ID loại **Desktop app** trong phần Credentials của Google Cloud. Cấu hình màn hình đồng ý OAuth theo yêu cầu của Google. Nếu ứng dụng OAuth đang ở trạng thái thử nghiệm, tài khoản đăng nhập cần được thêm vào danh sách test users của project.
-4. Ghi lại **OAuth Client ID** và **Project ID**.
-5. Trong Truyện Audio → Cài đặt → Giọng đọc, nhập hai giá trị trên, nhấn **Kết nối tài khoản Google**, sau đó đăng nhập và cấp quyền trong trình duyệt.
-6. Chọn **Google truyền thống** hoặc **Google AI** ở bộ chọn giọng trong màn hình Đang nghe. Có thể đổi lại Windows bất cứ lúc nào.
-
-Thông tin xác thực được mã hóa bằng Windows DPAPI thông qua Electron `safeStorage`, không lưu access token dạng văn bản thuần. Ứng dụng tự làm mới access token bằng refresh token. Âm thanh Google đã tạo được lưu bộ nhớ đệm cục bộ để hạn chế gọi lại và phát sinh chi phí khi nghe lại cùng đoạn. Khi chọn Google, văn bản truyện được gửi từng đoạn đến Google Cloud để tổng hợp giọng; cần Internet. Khi chọn Windows, văn bản được xử lý bằng giọng cục bộ.
-
-Google Cloud yêu cầu billing được bật. Hạn mức miễn phí và giá có thể thay đổi; kiểm tra trang giá chính thức trước khi sử dụng dài ngày: https://cloud.google.com/text-to-speech/pricing. Việc thiết lập tài khoản thanh toán nên được chủ tài khoản hoặc người giám hộ quản lý.
-
-Tài liệu chính thức:
-- https://docs.cloud.google.com/text-to-speech/docs/get-started
-- https://docs.cloud.google.com/text-to-speech/docs/chirp3-hd
-- https://docs.cloud.google.com/text-to-speech/docs/authentication
-
-
-## Đồng bộ Wi-Fi với Android (v1.3)
-
-1. Cài và mở Truyện Audio Desktop trên Windows.
-2. Mở **Cài đặt → Đồng bộ với Android qua Wi-Fi** và chọn **Bật máy chủ Wi-Fi**.
-3. Kết nối điện thoại và máy tính vào cùng một mạng Wi-Fi.
-4. Trên Android, nhập một địa chỉ IP hiển thị trên Desktop, cổng `38741` và mã PIN 6 chữ số.
-5. Sau khi ghép nối, Android có thể xem danh sách và tải từng truyện về thiết bị. (Ứng dụng Android cần bản có hỗ trợ đồng bộ tương ứng.)
-
-Máy chủ chỉ lắng nghe trong mạng nội bộ, yêu cầu mã PIN để ghép nối, cấp token phiên ngẫu nhiên và giới hạn thử PIN. Máy chủ tự tắt khi ứng dụng Desktop thoát. Không chia sẻ mã PIN cho người lạ; chỉ bật máy chủ khi cần đồng bộ. Tính năng này không chia sẻ thông tin đăng nhập Google TTS.
-
-Nếu Windows Firewall hỏi quyền mạng, chỉ cho phép trên mạng riêng (Private network), không bật cho mạng công cộng. Nếu không thấy IP, kiểm tra máy tính đã kết nối Wi-Fi/LAN.
+- Electron + HTML/CSS/JavaScript thuần; trích xuất HTML với Cheerio.
+- `contextIsolation: true`, `nodeIntegration: false`, preload chỉ expose các IPC được cho phép.
+- Electron 45.2.3 và electron-builder 26.18.0; Cheerio là dependency runtime.

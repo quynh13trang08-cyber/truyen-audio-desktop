@@ -3,14 +3,10 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const os = require('node:os');
+const zlib = require('node:zlib');
+const cheerio = require('cheerio');
 
 let mainWindow;
-let syncServer = null;
-let syncPin = '';
-let syncToken = '';
-const SYNC_PORT = 38741;
-const syncAttempts = new Map();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -77,6 +73,100 @@ ipcMain.handle('file:open-text', async () => {
 });
 
 
+
+function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function toDosDateTime(date = new Date()) {
+  const year = Math.max(1980, date.getFullYear());
+  return {
+    time: (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2),
+    date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate()
+  };
+}
+
+function makeZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  const stamp = toDosDateTime();
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name, 'utf8');
+    const source = Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(String(entry.data), 'utf8');
+    const compressed = zlib.deflateRawSync(source, { level: 6 });
+    const crc = crc32(source);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt16LE(stamp.time, 10);
+    local.writeUInt16LE(stamp.date, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(compressed.length, 18);
+    local.writeUInt32LE(source.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    local.writeUInt16LE(0, 28);
+    localParts.push(local, name, compressed);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(8, 10);
+    central.writeUInt16LE(stamp.time, 12);
+    central.writeUInt16LE(stamp.date, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(compressed.length, 20);
+    central.writeUInt32LE(source.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt16LE(0, 34);
+    central.writeUInt16LE(0, 36);
+    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, name);
+    offset += local.length + name.length + compressed.length;
+  }
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4); end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8); end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}
+
+ipcMain.handle('backup:export-zip', async () => {
+  const data = await (async () => {
+    try { return JSON.parse(await fs.readFile(dataFile(), 'utf8')); }
+    catch (error) { if (error.code === 'ENOENT') return { library: [], settings: {} }; throw error; }
+  })();
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Xuất bản sao lưu Truyện Audio',
+    defaultPath: `TruyenAudio-Backup-${new Date().toISOString().slice(0, 10)}.zip`,
+    filters: [{ name: 'Tệp ZIP', extensions: ['zip'] }]
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  const backup = {
+    format: 'truyen-audio-backup', version: 1, exportedAt: new Date().toISOString(),
+    library: Array.isArray(data.library) ? data.library : [],
+    settings: data.settings && typeof data.settings === 'object' ? data.settings : {}
+  };
+  const zip = makeZip([{ name: 'backup.json', data: JSON.stringify(backup) }]);
+  await fs.writeFile(result.filePath, zip);
+  return { canceled: false, filePath: result.filePath, stories: backup.library.length, bytes: zip.length };
+});
 
 function ttsCredentialsFile() {
   return path.join(app.getPath('userData'), 'google-tts-credentials.enc');
@@ -244,151 +334,75 @@ ipcMain.handle('tts:synthesize', async (_event, options) => {
 });
 
 
-function isPrivateLanAddress(address) {
-  const ip = String(address || '').replace(/^::ffff:/, '').toLowerCase();
-  return /^127\./.test(ip) || /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
-    /^169\.254\./.test(ip) || ip === '::1' || ip.startsWith('fc') || ip.startsWith('fd') || ip.startsWith('fe80:');
-}
+function extractChapterContent(html, pageUrl) {
+  const $ = cheerio.load(html, { decodeEntities: true });
+  const pageTitle = $('meta[property="og:title"]').attr('content') || $('title').first().text() || new URL(pageUrl).hostname;
 
-function getLanAddresses() {
-  const found = [];
-  for (const entries of Object.values(os.networkInterfaces())) {
-    for (const item of entries || []) {
-      if (item.family === 'IPv4' && !item.internal && isPrivateLanAddress(item.address)) found.push(item.address);
-    }
-  }
-  return [...new Set(found)];
-}
-
-function sendJson(res, status, payload) {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body),
-    'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff'
-  });
-  res.end(body);
-}
-
-async function readLibraryForSync() {
-  const raw = await fs.readFile(dataFile(), 'utf8');
-  const parsed = JSON.parse(raw);
-  return Array.isArray(parsed?.library) ? parsed.library : [];
-}
-
-async function startSyncServer() {
-  if (syncServer) return { running: true, port: SYNC_PORT, addresses: getLanAddresses(), pin: syncPin };
-  // Lưu tiến độ/thư viện hiện tại trước khi mở API cho điện thoại.
-  syncPin = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
-  syncToken = crypto.randomBytes(32).toString('hex');
-  syncServer = http.createServer(async (req, res) => {
-    const remote = req.socket.remoteAddress || '';
-    if (!isPrivateLanAddress(remote)) return sendJson(res, 403, { error: 'Chỉ cho phép thiết bị trong mạng nội bộ.' });
-    const pathname = new URL(req.url, 'http://localhost').pathname;
-    if (req.method === 'POST' && pathname === '/pair') {
-      const now = Date.now();
-      const attempt = syncAttempts.get(remote) || { count: 0, blockedUntil: 0 };
-      if (attempt.blockedUntil > now) return sendJson(res, 429, { error: 'Tạm khóa thử mã PIN. Hãy chờ 5 phút.' });
-      let raw = '';
-      try {
-        for await (const chunk of req) {
-          raw += chunk.toString('utf8');
-          if (raw.length > 2048) { req.destroy(); return; }
-        }
-        const data = JSON.parse(raw || '{}');
-        if (String(data.pin || '') !== syncPin) {
-          attempt.count += 1;
-          if (attempt.count >= 5) { attempt.count = 0; attempt.blockedUntil = now + 5 * 60 * 1000; }
-          syncAttempts.set(remote, attempt);
-          return sendJson(res, 401, { error: 'Mã PIN không đúng.' });
-        }
-        syncAttempts.delete(remote);
-        return sendJson(res, 200, { token: syncToken, app: 'Truyen Audio Desktop', version: '1.3.0' });
-      } catch {
-        return sendJson(res, 400, { error: 'Yêu cầu ghép nối không hợp lệ.' });
-      }
-    }
-
-    const auth = String(req.headers.authorization || '');
-    if (!syncToken || auth !== `Bearer ${syncToken}`) return sendJson(res, 401, { error: 'Thiết bị chưa ghép nối hoặc phiên đã hết hạn.' });
-
-    if (req.method === 'GET' && pathname === '/api/stories') {
-      try {
-        const library = await readLibraryForSync();
-        const stories = library.filter(item => item && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.content === 'string')
-          .map(item => ({ id: item.id, title: item.title, source: item.source || '', createdAt: item.createdAt || '', progress: Number(item.progress) || 0, characters: item.content.length }));
-        return sendJson(res, 200, { stories });
-      } catch {
-        return sendJson(res, 500, { error: 'Không đọc được thư viện trên máy tính.' });
-      }
-    }
-
-    const match = pathname.match(/^\/api\/stories\/([A-Za-z0-9._~-]+)$/);
-    if (req.method === 'GET' && match) {
-      try {
-        const id = decodeURIComponent(match[1]);
-        const library = await readLibraryForSync();
-        const story = library.find(item => item && item.id === id && typeof item.content === 'string');
-        if (!story) return sendJson(res, 404, { error: 'Không tìm thấy truyện.' });
-        const body = JSON.stringify({ id: story.id, title: story.title, content: story.content, source: story.source || '', createdAt: story.createdAt || '', progress: Number(story.progress) || 0 });
-        if (Buffer.byteLength(body) > 20 * 1024 * 1024) return sendJson(res, 413, { error: 'Truyện vượt quá giới hạn tải 20 MB.' });
-        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
-        return res.end(body);
-      } catch {
-        return sendJson(res, 500, { error: 'Không tải được nội dung truyện.' });
-      }
-    }
-    return sendJson(res, 404, { error: 'Không tìm thấy API.' });
+  // Bỏ các thành phần chắc chắn không thuộc thân chương và những khối giao diện phổ biến.
+  $('script,style,noscript,svg,iframe,header,footer,nav,aside,form,button,input,select,textarea,canvas,video,audio,source,figure,figcaption,[hidden],[aria-hidden="true"]').remove();
+  const noisePattern = /(sidebar|side-bar|widget|comment|reply|related|recommend|suggest|advert|(^|[-_\s])ads?($|[-_\s])|banner|toolbar|breadcrumb|pagination|social|share|menu|navbar|navigation|footer|header|author-box|rating|catalog|ranking|chapter-list|list-chapter)/i;
+  $('[id], [class]').each((_index, element) => {
+    const marker = `${$(element).attr('id') || ''} ${$(element).attr('class') || ''}`;
+    if (noisePattern.test(marker)) $(element).remove();
   });
 
-  try {
-    await new Promise((resolve, reject) => {
-      syncServer.once('error', reject);
-      syncServer.listen(SYNC_PORT, '0.0.0.0', resolve);
-    });
-  } catch (error) {
-    syncServer = null; syncPin = ''; syncToken = '';
-    if (error.code === 'EADDRINUSE') throw new Error(`Cổng ${SYNC_PORT} đang được ứng dụng khác sử dụng. Hãy đóng ứng dụng đó rồi thử lại.`);
-    throw new Error(`Không thể mở máy chủ Wi-Fi: ${error.message}`);
+  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
+  const semanticPattern = /(chapter|reading|reader|story|novel|book|truyen|chuong|content|txt|text|entry|post|article|chapter-c|box-chap)/i;
+  const candidates = [];
+  $('article, main, [itemprop="articleBody"], [id], [class]').each((_index, element) => {
+    const tag = String(element.tagName || '').toLowerCase();
+    if (!tag || tag === 'body' || tag === 'html') return;
+    const node = $(element);
+    const marker = `${node.attr('id') || ''} ${node.attr('class') || ''} ${node.attr('itemprop') || ''}`;
+    const text = node.text().replace(/\s+/g, ' ').trim();
+    if (text.length < 100 || text.length > 2_000_000) return;
+    const paragraphs = node.find('p').length;
+    const linksText = node.find('a').toArray().reduce((sum, a) => sum + $(a).text().trim().length, 0);
+    const linkRatio = linksText / Math.max(text.length, 1);
+    const semantic = semanticPattern.test(marker) || tag === 'article' || (tag === 'main' && paragraphs >= 2) || node.attr('itemprop') === 'articleBody';
+    if (!semantic || linkRatio > 0.30) return;
+    const bodyRatio = text.length / Math.max(bodyText.length, 1);
+    if (bodyRatio > 0.94 && tag !== 'article' && node.attr('itemprop') !== 'articleBody') return;
+    const score = Math.log(text.length) * 8 + Math.min(paragraphs, 80) * 2.5 + (tag === 'article' ? 18 : 0) + (node.attr('itemprop') === 'articleBody' ? 32 : 0) + (/(chapter|reader|reading|truyen|chuong|txt|story)/i.test(marker) ? 24 : 0) - linkRatio * 100 - Math.max(0, bodyRatio - 0.75) * 90;
+    candidates.push({ element, textLength: text.length, paragraphs, score, marker, tag });
+  });
+
+  candidates.sort((a, b) => b.score - a.score);
+  const best = candidates[0];
+  if (!best || best.textLength < 120 || (best.paragraphs < 2 && !/(chapter|reader|reading|truyen|chuong|txt|story)/i.test(best.marker))) {
+    throw new Error('Không xác định chắc chắn được vùng nội dung chương truyện. App không lấy toàn bộ trang để tránh lẫn menu, quảng cáo hoặc nội dung bên cạnh.');
   }
-  return { running: true, port: SYNC_PORT, addresses: getLanAddresses(), pin: syncPin };
-}
 
-async function stopSyncServer() {
-  if (syncServer) {
-    const server = syncServer;
-    syncServer = null;
-    await new Promise(resolve => server.close(() => resolve()));
-  }
-  syncPin = ''; syncToken = ''; syncAttempts.clear();
-  return { running: false };
-}
+  const content = $(best.element).clone();
+  // Loại các tiêu đề trang/chương được nhúng trong vùng đọc; tên truyện/chương không phải nội dung cần đọc.
+  content.find('h1,h2,h3,.chapter-title,.title-chapter,.book-title,.story-title,.entry-title').each((_index, heading) => {
+    const headingText = $(heading).text().trim();
+    if (_index < 3 || headingText.length < 180) $(heading).remove();
+  });
+  content.find('a').each((_index, link) => {
+    const href = String($(link).attr('href') || '').trim();
+    const linkText = $(link).text().trim();
+    if (!linkText || /^(next|previous|prev|tiếp|trước|mục lục|danh sách chương)$/i.test(linkText) || /chapter|chuong/i.test(href)) $(link).remove();
+  });
 
-ipcMain.handle('sync:start', async () => startSyncServer());
-ipcMain.handle('sync:stop', async () => stopSyncServer());
-ipcMain.handle('sync:status', async () => ({ running: Boolean(syncServer), port: SYNC_PORT, addresses: getLanAddresses(), pin: syncPin }));
-
-function decodeEntities(text) {
-  const named = {
-    '&nbsp;': ' ', '&amp;': '&', '&quot;': '"', '&#39;': "'", '&apos;': "'",
-    '&lt;': '<', '&gt;': '>', '&hellip;': '…', '&ndash;': '–', '&mdash;': '—'
-  };
-  return text
-    .replace(/&(?:nbsp|amp|quot|#39|apos|lt|gt|hellip|ndash|mdash);/gi, m => named[m.toLowerCase()] ?? m)
-    .replace(/&#(\d+);/g, (_m, n) => String.fromCodePoint(Math.min(Number(n), 0x10ffff)))
-    .replace(/&#x([0-9a-f]+);/gi, (_m, n) => String.fromCodePoint(Math.min(parseInt(n, 16), 0x10ffff)));
-}
-
-function htmlToText(html) {
-  let cleaned = String(html)
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<(script|style|noscript|svg|iframe|header|footer|nav|aside)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<(br|hr)\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|article|section|h[1-6]|li|blockquote|tr)>/gi, '\n\n')
+  let textHtml = content.html() || '';
+  textHtml = textHtml
+    .replace(/<(br|hr)\b[^>]*>/gi, '\n')
+    .replace(/<\/(p|div|section|article|blockquote|li|h[1-6])\s*>/gi, '\n\n')
     .replace(/<[^>]+>/g, ' ');
-  cleaned = decodeEntities(cleaned).replace(/[\t\r ]+/g, ' ').replace(/ *\n */g, '\n');
-  return cleaned.split('\n').map(line => line.trim()).filter(Boolean).join('\n\n').trim();
+  const decoded = cheerio.load(`<div>${textHtml}</div>`).text();
+  const normalized = decoded
+    .replace(/\u00a0/g, ' ')
+    .replace(/[\t\r ]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+  if (normalized.length < 100) throw new Error('Vùng nội dung tìm được quá ngắn; app đã từ chối lấy cả trang web.');
+  return { title: String(pageTitle).replace(/\s+/g, ' ').trim().slice(0, 160), content: normalized };
 }
 
 function isPrivateHost(hostname) {
@@ -434,8 +448,8 @@ ipcMain.handle('web:import', async (_event, rawUrl) => {
     }
     const html = await response.text();
     if (html.length > 8 * 1024 * 1024) throw new Error('Trang quá lớn để nhập (giới hạn 8 MB).');
-    const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
-    return { title: title ? decodeEntities(title.replace(/<[^>]+>/g, '')).trim() : url.hostname, content: htmlToText(html) };
+    const extracted = extractChapterContent(html, url.toString());
+    return { ...extracted, sourceUrl: url.toString() };
   } catch (error) {
     if (error.name === 'AbortError') throw new Error('Đã hết thời gian chờ khi tải trang.');
     throw new Error(error.message || 'Không thể tải nội dung website.');
@@ -449,10 +463,6 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-});
-
-app.on('before-quit', () => {
-  if (syncServer) { try { syncServer.close(); } catch {} syncServer = null; }
 });
 
 app.on('window-all-closed', () => {

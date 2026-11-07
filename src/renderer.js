@@ -3,11 +3,11 @@
 const $ = (id) => document.getElementById(id);
 const synth = window.speechSynthesis;
 const state = {
-  library: [], settings: { theme: 'dark', rate: 1, voiceURI: '', engine: 'windows', googleVoice: 'vi-VN-Standard-A', autoNextChapter: true },
+  library: [], settings: { theme: 'dark', rate: 1, voiceURI: '', engine: 'windows', googleVoice: 'vi-VN-Standard-A', autoNextChapter: true, replacementRules: [] },
   activeId: null, activeView: 'library', voices: [], chunks: [], chapters: [],
   position: 0, chunkIndex: 0, utterance: null, isPlaying: false,
   pendingFile: null, pendingUrl: null, saveTimer: null, toastTimer: null,
-  isSeeking: false, cloudAudio: new Audio(), cloudSession: 0, cloudActive: false, cloudPending: false, chapterTimer: null
+  isSeeking: false, cloudAudio: new Audio(), cloudSession: 0, cloudActive: false, cloudPending: false, chapterTimer: null, editorTarget: null, ruleEditIndex: null
 };
 
 const viewTitles = {
@@ -167,16 +167,261 @@ function findChapters(text) {
 function renderReadingContent(story) {
   const container = $('readingContent');
   container.replaceChildren();
-  const parts = story.content.split(/\n\s*\n/);
-  let offset = 0;
-  parts.forEach(part => {
+  const paragraphPattern = /\S[\s\S]*?(?=\n\s*\n|$)/g;
+  const matches = [...story.content.matchAll(paragraphPattern)];
+  if (!matches.length && story.content.trim()) {
     const p = document.createElement('p');
-    p.textContent = part;
-    p.dataset.start = offset;
+    p.textContent = story.content;
+    p.dataset.start = '0';
+    p.dataset.length = String(story.content.length);
     container.append(p);
-    offset += part.length + 2;
-  });
+  } else {
+    matches.forEach(match => {
+      const part = match[0].trimEnd();
+      const wrapper = document.createElement('div');
+      wrapper.className = 'reading-paragraph';
+      const p = document.createElement('p');
+      p.textContent = part;
+      p.dataset.start = String(match.index);
+      p.dataset.length = String(part.length);
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'paragraph-edit';
+      edit.textContent = 'Sửa đoạn';
+      edit.title = 'Chỉnh sửa riêng đoạn văn này';
+      edit.addEventListener('click', () => openTextEditor('paragraph', {
+        start: Number(p.dataset.start), length: Number(p.dataset.length), text: p.textContent
+      }));
+      wrapper.append(p, edit);
+      container.append(wrapper);
+    });
+  }
   updateActiveParagraph();
+}
+
+function pushEditHistory(story, action) {
+  if (!Array.isArray(story.editHistory)) story.editHistory = [];
+  story.editHistory.push({ content: story.content, progress: Number(story.progress) || 0, action, at: new Date().toISOString() });
+  if (story.editHistory.length > 30) story.editHistory.splice(0, story.editHistory.length - 30);
+  $('undoEdit').disabled = false;
+}
+
+function currentChapterBounds() {
+  const story = activeStory();
+  if (!story) return { start: 0, end: 0, title: '' };
+  let index = 0;
+  state.chapters.forEach((chapter, i) => { if (chapter.start <= state.position) index = i; });
+  return {
+    start: state.chapters[index]?.start || 0,
+    end: state.chapters[index + 1]?.start ?? story.content.length,
+    title: state.chapters[index]?.title || 'Chương hiện tại'
+  };
+}
+
+function openTextEditor(mode, target = null) {
+  const story = activeStory();
+  if (!story) { toast('Hãy mở một truyện trước.'); return; }
+  state.editorTarget = mode === 'paragraph' ? target : null;
+  $('textEditorPane').hidden = mode === 'replace';
+  $('replaceEditorPane').hidden = mode !== 'replace';
+  $('saveEditorText').hidden = mode === 'replace';
+  $('applyReplacement').hidden = mode !== 'replace';
+  $('editorTitle').textContent = mode === 'paragraph' ? 'Sửa đoạn văn' : mode === 'replace' ? 'Tìm và thay thế' : 'Sửa toàn bộ truyện';
+  if (mode === 'paragraph') {
+    $('editorDescription').textContent = 'Chỉ thay đổi đoạn văn đang chọn; các phần khác được giữ nguyên.';
+    $('editorText').value = target?.text || '';
+  } else if (mode === 'full') {
+    $('editorDescription').textContent = 'Bạn có thể chỉnh sửa trực tiếp toàn bộ nội dung. Bản trước khi sửa sẽ được lưu vào lịch sử.';
+    $('editorText').value = story.content;
+  } else {
+    $('editorDescription').textContent = 'Tìm không phân biệt chữ hoa/chữ thường. Có thể áp dụng cho cả truyện hoặc chương đang chọn.';
+    $('replaceFind').value = '';
+    $('replaceWith').value = '';
+    $('editorScope').value = 'story';
+    updateReplacePreview();
+  }
+  const dialog = $('editorDialog');
+  if (!dialog.open) dialog.showModal();
+}
+
+function closeTextEditor() {
+  const dialog = $('editorDialog');
+  if (dialog.open) dialog.close();
+  state.editorTarget = null;
+}
+
+function applyContentChange(newContent, reason, preferredPosition = state.position) {
+  const story = activeStory();
+  if (!story) return;
+  const wasPlaying = state.isPlaying;
+  stopSpeech(false);
+  story.content = String(newContent);
+  state.position = Math.max(0, Math.min(preferredPosition, story.content.length));
+  story.progress = state.position;
+  state.chapters = findChapters(story.content);
+  state.chunks = splitIntoChunks(story.content, 230, chapterBoundaries());
+  $('nowMeta').textContent = `${wordCount(story.content).toLocaleString('vi-VN')} từ · Đã lưu trên thiết bị`;
+  renderReadingContent(story);
+  $('undoEdit').disabled = !Array.isArray(story.editHistory) || !story.editHistory.length;
+  renderChapters();
+  updateProgress();
+  renderLibrary();
+  updateReplacementPreview();
+  persistNow();
+  toast(reason);
+  if (wasPlaying) speakFrom(state.position);
+}
+
+function saveTextEditor() {
+  const story = activeStory();
+  if (!story) return;
+  const newText = $('editorText').value;
+  if (!newText.trim()) { toast('Nội dung truyện không được để trống.'); return; }
+  if (newText.length > 15 * 1024 * 1024) { toast('Nội dung quá lớn (giới hạn 15 MB).'); return; }
+  const oldContent = story.content;
+  const target = state.editorTarget;
+  let nextContent;
+  let nextPosition = state.position;
+  if (target) {
+    nextContent = oldContent.slice(0, target.start) + newText + oldContent.slice(target.start + target.length);
+    const delta = newText.length - target.length;
+    if (state.position > target.start + target.length) nextPosition += delta;
+    else if (state.position >= target.start) nextPosition = target.start + Math.min(newText.length, state.position - target.start);
+  } else {
+    nextContent = newText;
+    if (oldContent.length > 0) nextPosition = Math.round((state.position / oldContent.length) * newText.length);
+  }
+  if (nextContent === oldContent) { closeTextEditor(); toast('Nội dung không thay đổi.'); return; }
+  pushEditHistory(story, target ? 'Sửa một đoạn văn' : 'Sửa toàn bộ truyện');
+  closeTextEditor();
+  applyContentChange(nextContent, 'Đã lưu nội dung chỉnh sửa.', nextPosition);
+}
+
+function countOccurrences(text, search) {
+  if (!search) return 0;
+  const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return (String(text).match(new RegExp(escaped, 'gi')) || []).length;
+}
+
+function updateReplacePreview() {
+  const story = activeStory();
+  const search = $('replaceFind').value;
+  if (!story || !search) { $('replacePreview').textContent = 'Nhập nội dung cần tìm để xem trước số vị trí.'; return; }
+  const bounds = $('editorScope').value === 'chapter' ? currentChapterBounds() : { start: 0, end: story.content.length, title: 'Toàn bộ truyện' };
+  const count = countOccurrences(story.content.slice(bounds.start, bounds.end), search);
+  $('replacePreview').textContent = `Tìm thấy ${count.toLocaleString('vi-VN')} vị trí trong ${bounds.title}.`;
+}
+
+function applyFindReplace() {
+  const story = activeStory();
+  const search = $('replaceFind').value;
+  const replacement = $('replaceWith').value;
+  if (!story || !search) { toast('Nhập từ hoặc cụm từ cần tìm.'); return; }
+  const bounds = $('editorScope').value === 'chapter' ? currentChapterBounds() : { start: 0, end: story.content.length };
+  const targetText = story.content.slice(bounds.start, bounds.end);
+  const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(escaped, 'gi');
+  const count = (targetText.match(pattern) || []).length;
+  if (!count) { toast('Không tìm thấy nội dung cần thay.'); return; }
+  const changed = targetText.replace(pattern, () => replacement);
+  const nextContent = story.content.slice(0, bounds.start) + changed + story.content.slice(bounds.end);
+  pushEditHistory(story, `Thay ${count} vị trí: “${search}”`);
+  const position = state.position <= bounds.start ? state.position : Math.min(state.position, nextContent.length);
+  closeTextEditor();
+  applyContentChange(nextContent, `Đã thay ${count.toLocaleString('vi-VN')} vị trí.`, position);
+}
+
+function undoStoryEdit() {
+  const story = activeStory();
+  if (!story || !Array.isArray(story.editHistory) || !story.editHistory.length) { toast('Không có chỉnh sửa để hoàn tác.'); return; }
+  const snapshot = story.editHistory.pop();
+  story.content = snapshot.content;
+  state.position = Math.min(Number(snapshot.progress) || 0, story.content.length);
+  state.chapters = findChapters(story.content);
+  $('undoEdit').disabled = !story.editHistory.length;
+  applyContentChange(story.content, `Đã hoàn tác: ${snapshot.action}.`, state.position);
+}
+
+function applyReplacementRules(content) {
+  const rules = Array.isArray(state.settings.replacementRules) ? state.settings.replacementRules : [];
+  let result = String(content || '');
+  for (const rule of rules) {
+    if (!rule || rule.enabled === false || !String(rule.from || '')) continue;
+    const escaped = String(rule.from).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp(escaped, 'gi'), () => String(rule.to ?? ''));
+  }
+  return result;
+}
+
+function countRuleMatches(content) {
+  let working = String(content || '');
+  let total = 0;
+  const rules = Array.isArray(state.settings.replacementRules) ? state.settings.replacementRules : [];
+  for (const rule of rules) {
+    if (!rule || rule.enabled === false || !String(rule.from || '')) continue;
+    const escaped = String(rule.from).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(escaped, 'gi');
+    const found = working.match(pattern) || [];
+    total += found.length;
+    working = working.replace(pattern, () => String(rule.to ?? ''));
+  }
+  return total;
+}
+
+function updateReplacementPreview() {
+  const story = activeStory();
+  if (!story) { $('replacementPreview').textContent = 'Mở một truyện để xem trước.'; return; }
+  const count = countRuleMatches(story.content);
+  $('replacementPreview').textContent = count
+    ? `Sẽ thay khoảng ${count.toLocaleString('vi-VN')} vị trí trong truyện hiện tại.`
+    : 'Không có vị trí nào cần thay trong truyện hiện tại.';
+}
+
+function applyRulesToCurrentStory() {
+  const story = activeStory();
+  if (!story) { toast('Hãy mở một truyện trước.'); return; }
+  const count = countRuleMatches(story.content);
+  if (!count) { toast('Không có quy tắc nào khớp với truyện hiện tại.'); return; }
+  if (!confirm(`Áp dụng tất cả quy tắc đã lưu cho toàn bộ truyện?\nSố vị trí dự kiến: ${count.toLocaleString('vi-VN')}.`)) return;
+  const nextContent = applyReplacementRules(story.content);
+  if (nextContent === story.content) { toast('Nội dung không thay đổi.'); return; }
+  pushEditHistory(story, `Áp dụng từ điển thay thế (${count} vị trí)`);
+  applyContentChange(nextContent, `Đã áp dụng ${count.toLocaleString('vi-VN')} vị trí thay thế.`, state.position);
+  updateReplacementPreview();
+}
+
+function renderReplacementRules() {
+  const list = $('replacementRuleList');
+  if (!list) return;
+  list.replaceChildren();
+  const rules = Array.isArray(state.settings.replacementRules) ? state.settings.replacementRules : [];
+  if (!rules.length) {
+    const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'Chưa có quy tắc thay thế.'; list.append(empty);
+  } else {
+    rules.forEach((rule, index) => {
+      const row = document.createElement('div'); row.className = 'replacement-rule';
+      const label = document.createElement('span'); label.textContent = `“${rule.from}” → “${rule.to}”`;
+      const actions = document.createElement('div'); actions.className = 'replacement-rule-actions';
+      const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'text-btn'; edit.textContent = 'Sửa';
+      edit.addEventListener('click', () => {
+        state.ruleEditIndex = index;
+        $('replacementFrom').value = rule.from;
+        $('replacementTo').value = rule.to;
+        $('addReplacementRule').textContent = 'Lưu quy tắc';
+        $('replacementFrom').focus();
+      });
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'delete-btn'; remove.textContent = 'Xóa';
+      remove.addEventListener('click', () => {
+        state.settings.replacementRules.splice(index, 1);
+        if (state.ruleEditIndex === index) {
+          state.ruleEditIndex = null; $('replacementFrom').value = ''; $('replacementTo').value = ''; $('addReplacementRule').textContent = '＋ Thêm quy tắc';
+        } else if (state.ruleEditIndex !== null && state.ruleEditIndex > index) state.ruleEditIndex--;
+        renderReplacementRules(); scheduleSave();
+      });
+      actions.append(edit, remove); row.append(label, actions); list.append(row);
+    });
+  }
+  updateReplacementPreview();
 }
 
 function updateActiveParagraph() {
@@ -243,9 +488,11 @@ function openStory(id, autoNavigate = false) {
   $('playPause').textContent = '▶';
   $('miniPlay').textContent = '▶';
   renderReadingContent(story);
+  $('undoEdit').disabled = !Array.isArray(story.editHistory) || !story.editHistory.length;
   renderChapters();
   updateProgress();
   renderLibrary();
+  updateReplacementPreview();
   if (autoNavigate) showView('listen');
 }
 
@@ -555,7 +802,7 @@ function jumpChapter(delta) {
 }
 
 function addStory(title, content, source) {
-  const clean = String(content || '').trim();
+  const clean = applyReplacementRules(String(content || '').trim());
   if (clean.length < 2) { toast('Nội dung truyện đang trống.'); return false; }
   if (clean.length > 15 * 1024 * 1024) { toast('Nội dung quá lớn (giới hạn 15 MB).'); return false; }
   const item = {
@@ -598,7 +845,10 @@ async function init() {
     if (Array.isArray(saved.library)) state.library = saved.library.filter(item => item && typeof item.content === 'string' && typeof item.title === 'string');
     if (saved.settings && typeof saved.settings === 'object') state.settings = { ...state.settings, ...saved.settings };
   } catch (error) { toast(`Không tải được thư viện: ${error.message}`); }
+  state.settings.rate = Math.min(2.5, Math.max(0.6, Number(state.settings.rate) || 1));
+  if (!Array.isArray(state.settings.replacementRules)) state.settings.replacementRules = [];
   applyTheme();
+  renderReplacementRules();
   $('autoNextChapter').checked = state.settings.autoNextChapter !== false;
   renderLibrary();
   loadVoices();
@@ -614,39 +864,42 @@ async function init() {
   $('themeSelect').addEventListener('change', event => { state.settings.theme = event.target.value; applyTheme(); scheduleSave(); });
   $('autoNextChapter').addEventListener('change', event => { state.settings.autoNextChapter = event.target.checked; scheduleSave(); });
 
-  const renderSyncStatus = info => {
-    const running = Boolean(info?.running);
-    $('startSync').disabled = running;
-    $('stopSync').disabled = !running;
-    $('syncInfo').hidden = !running;
-    $('syncStatus').textContent = running
-      ? 'Máy chủ đang hoạt động. Giữ máy tính bật và không đóng ứng dụng trong khi đồng bộ.'
-      : 'Máy chủ Wi-Fi đang tắt. Không có dữ liệu nào được chia sẻ khi chưa bật.';
-    if (running) {
-      $('syncAddresses').textContent = (info.addresses || []).length ? info.addresses.map(ip => `http://${ip}:${info.port}`).join('   ·   ') : 'Không tìm thấy địa chỉ IPv4 của mạng Wi-Fi. Hãy kiểm tra kết nối mạng.';
-      $('syncPort').textContent = String(info.port || 38741);
-      $('syncPin').textContent = info.pin || '';
+  $('editAllStory').addEventListener('click', () => openTextEditor('full'));
+  $('openReplace').addEventListener('click', () => openTextEditor('replace'));
+  $('undoEdit').addEventListener('click', undoStoryEdit);
+  $('closeEditor').addEventListener('click', closeTextEditor);
+  $('cancelEditor').addEventListener('click', closeTextEditor);
+  $('saveEditorText').addEventListener('click', saveTextEditor);
+  $('applyReplacement').addEventListener('click', applyFindReplace);
+  $('replaceFind').addEventListener('input', updateReplacePreview);
+  $('editorScope').addEventListener('change', updateReplacePreview);
+  $('addReplacementRule').addEventListener('click', () => {
+    const from = $('replacementFrom').value;
+    const to = $('replacementTo').value;
+    if (!from.trim()) { toast('Nhập từ/cụm từ cần thay.'); return; }
+    if (state.ruleEditIndex !== null && state.settings.replacementRules[state.ruleEditIndex]) {
+      state.settings.replacementRules[state.ruleEditIndex] = { ...state.settings.replacementRules[state.ruleEditIndex], from, to };
+      state.ruleEditIndex = null;
+      toast('Đã cập nhật quy tắc thay thế.');
+    } else {
+      state.settings.replacementRules.push({ id: `${Date.now()}-${Math.random().toString(16).slice(2, 7)}`, from, to, enabled: true });
+      toast('Đã lưu quy tắc cho nội dung truyện mới được thêm.');
     }
-  };
-  $('startSync').addEventListener('click', async () => {
-    $('startSync').disabled = true;
-    $('syncStatus').textContent = 'Đang khởi động máy chủ Wi-Fi...';
+    $('replacementFrom').value = ''; $('replacementTo').value = ''; $('addReplacementRule').textContent = '＋ Thêm quy tắc';
+    renderReplacementRules(); scheduleSave();
+  });
+  $('applyRulesCurrentStory').addEventListener('click', applyRulesToCurrentStory);
+  $('exportBackup').addEventListener('click', async () => {
+    $('exportBackup').disabled = true; $('backupStatus').textContent = 'Đang chuẩn bị bản sao lưu...';
     try {
-      await persistNow();
-      const info = await window.audioAPI.startSync();
-      renderSyncStatus(info);
-      toast('Đã bật máy chủ Wi-Fi.');
-    } catch (error) {
-      $('startSync').disabled = false;
-      $('syncStatus').textContent = error.message;
-      toast(error.message);
-    }
+      await window.audioAPI.saveLibrary({ library: state.library, settings: state.settings });
+      const result = await window.audioAPI.exportBackupZip();
+      if (result.canceled) { $('backupStatus').textContent = 'Đã hủy xuất bản sao lưu.'; return; }
+      $('backupStatus').textContent = `Đã xuất ${result.stories} truyện · ${(result.bytes / 1024 / 1024).toFixed(2)} MB.`;
+      toast('Đã tạo file sao lưu ZIP.');
+    } catch (error) { $('backupStatus').textContent = error.message; toast(error.message); }
+    finally { $('exportBackup').disabled = false; }
   });
-  $('stopSync').addEventListener('click', async () => {
-    try { const info = await window.audioAPI.stopSync(); renderSyncStatus(info); toast('Đã ngắt máy chủ Wi-Fi.'); }
-    catch (error) { toast(error.message); }
-  });
-  try { renderSyncStatus(await window.audioAPI.getSyncStatus()); } catch (error) { $('syncStatus').textContent = error.message; }
 
   $('searchInput').addEventListener('input', renderLibrary);
   $('chooseFile').addEventListener('click', async () => {
