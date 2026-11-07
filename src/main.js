@@ -337,55 +337,189 @@ ipcMain.handle('tts:synthesize', async (_event, options) => {
 function extractChapterContent(html, pageUrl) {
   const $ = cheerio.load(html, { decodeEntities: true });
   const pageTitle = $('meta[property="og:title"]').attr('content') || $('title').first().text() || new URL(pageUrl).hostname;
+  const linkSelector = 'a,button,[role="link"],[role="button"]';
 
-  // Bỏ các thành phần chắc chắn không thuộc thân chương và những khối giao diện phổ biến.
-  $('script,style,noscript,svg,iframe,header,footer,nav,aside,form,button,input,select,textarea,canvas,video,audio,source,figure,figcaption,[hidden],[aria-hidden="true"]').remove();
-  const noisePattern = /(sidebar|side-bar|widget|comment|reply|related|recommend|suggest|advert|(^|[-_\s])ads?($|[-_\s])|banner|toolbar|breadcrumb|pagination|social|share|menu|navbar|navigation|footer|header|author-box|rating|catalog|ranking|chapter-list|list-chapter)/i;
+  // The chapter body must be bounded by two repeated navigation groups:
+  // "Chương trước | Mục lục | Chương sau". We intentionally do not fall
+  // back to guessing the whole article/main/body when those boundaries are absent.
+  function normalizeNavLabel(value) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd').replace(/Đ/g, 'D')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function classifyNavLink(element) {
+    const node = $(element);
+    const label = normalizeNavLabel([
+      node.text(),
+      node.attr('aria-label'),
+      node.attr('title'),
+      node.attr('data-title')
+    ].filter(Boolean).join(' '));
+    if (!label) return null;
+    if (/(^|\b)(muc luc|danh sach chuong|table of contents|contents|chapter list|toc)(\b|$)/.test(label)) return 'toc';
+    if (/(^|\b)(chuong\s*)?(truoc|truoc do|previous|prev)(\b|$)/.test(label)) return 'previous';
+    if (/(^|\b)(chuong\s*)?(sau|tiep|tiep theo|ke tiep|next)(\b|$)/.test(label)) return 'next';
+    return null;
+  }
+
+  function isWithin(node, ancestor) {
+    for (let current = node; current; current = current.parent) {
+      if (current === ancestor) return true;
+    }
+    return false;
+  }
+
+  function commonElementAncestor(nodes) {
+    for (let current = nodes[0]?.parent; current; current = current.parent) {
+      if (current.type !== 'tag') continue;
+      if (nodes.every(node => isWithin(node, current))) return current;
+    }
+    return null;
+  }
+
+  // Keep document order for each DOM node so we can cut everything before
+  // the first navigation group and after the second one without parsing the
+  // page as plain text (which could accidentally match sidebar/menu content).
+  const positions = new Map();
+  let domIndex = 0;
+  function indexDom(node) {
+    const first = domIndex++;
+    for (const child of node.children || []) indexDom(child);
+    positions.set(node, { first, last: domIndex - 1 });
+  }
+  const root = $.root()[0];
+  indexDom(root);
+
+  const roleLinks = { previous: [], toc: [], next: [] };
+  $(linkSelector).each((_index, element) => {
+    const role = classifyNavLink(element);
+    if (role && roleLinks[role].length < 20) roleLinks[role].push(element);
+  });
+
+  const candidateMap = new Map();
+  for (const previous of roleLinks.previous) {
+    for (const toc of roleLinks.toc) {
+      for (const next of roleLinks.next) {
+        const selected = [previous, toc, next];
+        const candidate = commonElementAncestor(selected);
+        if (!candidate || ['html', 'body'].includes(String(candidate.name || '').toLowerCase())) continue;
+        const candidatePos = positions.get(candidate);
+        const selectedPositions = selected.map(node => positions.get(node)?.first).filter(Number.isInteger);
+        if (!candidatePos || selectedPositions.length !== 3) continue;
+        const selectedSpan = Math.max(...selectedPositions) - Math.min(...selectedPositions);
+        if (selectedSpan > 100) continue;
+
+        const controls = $(candidate).find(linkSelector).toArray();
+        if (controls.length < 3 || controls.length > 12) continue;
+        const candidateRoles = controls.map(classifyNavLink).filter(Boolean);
+        if (!candidateRoles.includes('previous') || !candidateRoles.includes('toc') || !candidateRoles.includes('next')) continue;
+
+        const textLength = $(candidate).text().replace(/\s+/g, ' ').trim().length;
+        const nodeSpan = candidatePos.last - candidatePos.first;
+        // A navigation group is small. These bounds prevent a page-wide wrapper
+        // (or a wrapper containing the story itself) from being treated as a marker.
+        if (textLength > 900 || nodeSpan > 180) continue;
+
+        const ordered = selected.slice().sort((a, b) => positions.get(a).first - positions.get(b).first);
+        if (ordered[0] !== previous || ordered[1] !== toc || ordered[2] !== next) continue;
+
+        const metric = nodeSpan + textLength * 0.2 + controls.length * 2;
+        const key = `${candidatePos.first}:${candidatePos.last}`;
+        const current = candidateMap.get(key);
+        if (!current || metric < current.metric) {
+          candidateMap.set(key, { node: candidate, first: candidatePos.first, last: candidatePos.last, metric, textLength, nodeSpan });
+        }
+      }
+    }
+  }
+
+  // Collapse nested matches, retaining the smallest DOM element for each group.
+  const rawGroups = [...candidateMap.values()].sort((a, b) => a.metric - b.metric);
+  const groups = [];
+  for (const candidate of rawGroups) {
+    if (groups.some(group => group.node === candidate.node || isWithin(candidate.node, group.node) || isWithin(group.node, candidate.node))) continue;
+    groups.push(candidate);
+  }
+  groups.sort((a, b) => a.first - b.first);
+
+  if (groups.length < 2) {
+    throw new Error('Không tìm thấy đủ hai cụm điều hướng “Chương trước – Mục lục – Chương sau” ở đầu và cuối chương. App không lấy toàn trang để tránh lẫn nội dung bên ngoài.');
+  }
+
+  function collectRangeText(node, from, to, chunks) {
+    const position = positions.get(node);
+    if (!position || position.last < from || position.first > to) return;
+    if (node.type === 'text') {
+      if (position.first >= from && position.first <= to) chunks.push(node.data || '');
+      return;
+    }
+    const tag = String(node.name || '').toLowerCase();
+    if (['script', 'style', 'noscript', 'svg', 'template'].includes(tag)) return;
+    for (const child of node.children || []) collectRangeText(child, from, to, chunks);
+  }
+
+  function countParagraphsInRange(node, from, to) {
+    const position = positions.get(node);
+    if (!position || position.last < from || position.first > to) return 0;
+    let count = node.type === 'tag' && String(node.name || '').toLowerCase() === 'p' ? 1 : 0;
+    for (const child of node.children || []) count += countParagraphsInRange(child, from, to);
+    return count;
+  }
+
+  // If the page has extra navigation groups (for example in a header/sidebar),
+  // select the adjacent pair that encloses the most paragraph-rich chapter text.
+  const intervals = [];
+  for (let i = 0; i < groups.length - 1; i++) {
+    const from = groups[i].last + 1;
+    const to = groups[i + 1].first - 1;
+    if (from > to) continue;
+    const chunks = [];
+    collectRangeText(root, from, to, chunks);
+    const rawText = chunks.join(' ').replace(/\s+/g, ' ').trim();
+    if (rawText.length < 80 || rawText.length > 2_000_000) continue;
+    const paragraphs = countParagraphsInRange(root, from, to);
+    const score = Math.log(rawText.length + 1) * 20 + Math.min(paragraphs, 150) * 8;
+    intervals.push({ from, to, rawLength: rawText.length, paragraphs, score });
+  }
+
+  intervals.sort((a, b) => b.score - a.score);
+  const selectedInterval = intervals[0];
+  if (!selectedInterval) {
+    throw new Error('Đã thấy cụm điều hướng nhưng không tìm được phần văn bản đủ dài nằm giữa hai cụm. App không lấy toàn trang.');
+  }
+
+  // Physically prune all DOM nodes outside the selected interval. Ancestor
+  // wrappers are retained only when they contain part of the chapter range.
+  function pruneOutsideRange(node) {
+    for (const child of [...(node.children || [])]) {
+      const position = positions.get(child);
+      if (!position || position.last < selectedInterval.from || position.first > selectedInterval.to) {
+        $(child).remove();
+      } else {
+        pruneOutsideRange(child);
+      }
+    }
+  }
+  pruneOutsideRange(root);
+
+  // Strip remaining page chrome that happens to sit between the two markers.
+  $('script,style,noscript,svg,iframe,header,footer,nav,aside,form,button,input,select,textarea,canvas,video,audio,source,figure,figcaption,template,[hidden],[aria-hidden="true"]').remove();
+  const noisePattern = /(sidebar|side-bar|widget|comment|reply|related|recommend|suggest|advert|(^|[-_\s])ads?($|[-_\s])|banner|toolbar|breadcrumb|pagination|social|share|menu|navbar|navigation|author-box|rating|catalog|ranking|chapter-list|list-chapter)/i;
   $('[id], [class]').each((_index, element) => {
     const marker = `${$(element).attr('id') || ''} ${$(element).attr('class') || ''}`;
     if (noisePattern.test(marker)) $(element).remove();
   });
 
-  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
-  const semanticPattern = /(chapter|reading|reader|story|novel|book|truyen|chuong|content|txt|text|entry|post|article|chapter-c|box-chap)/i;
-  const candidates = [];
-  $('article, main, [itemprop="articleBody"], [id], [class]').each((_index, element) => {
-    const tag = String(element.tagName || '').toLowerCase();
-    if (!tag || tag === 'body' || tag === 'html') return;
-    const node = $(element);
-    const marker = `${node.attr('id') || ''} ${node.attr('class') || ''} ${node.attr('itemprop') || ''}`;
-    const text = node.text().replace(/\s+/g, ' ').trim();
-    if (text.length < 100 || text.length > 2_000_000) return;
-    const paragraphs = node.find('p').length;
-    const linksText = node.find('a').toArray().reduce((sum, a) => sum + $(a).text().trim().length, 0);
-    const linkRatio = linksText / Math.max(text.length, 1);
-    const semantic = semanticPattern.test(marker) || tag === 'article' || (tag === 'main' && paragraphs >= 2) || node.attr('itemprop') === 'articleBody';
-    if (!semantic || linkRatio > 0.30) return;
-    const bodyRatio = text.length / Math.max(bodyText.length, 1);
-    if (bodyRatio > 0.94 && tag !== 'article' && node.attr('itemprop') !== 'articleBody') return;
-    const score = Math.log(text.length) * 8 + Math.min(paragraphs, 80) * 2.5 + (tag === 'article' ? 18 : 0) + (node.attr('itemprop') === 'articleBody' ? 32 : 0) + (/(chapter|reader|reading|truyen|chuong|txt|story)/i.test(marker) ? 24 : 0) - linkRatio * 100 - Math.max(0, bodyRatio - 0.75) * 90;
-    candidates.push({ element, textLength: text.length, paragraphs, score, marker, tag });
-  });
+  // Chapter headings are metadata, not part of the spoken chapter body.
+  $('h1,h2,h3,.chapter-title,.title-chapter,.book-title,.story-title,.entry-title').remove();
 
-  candidates.sort((a, b) => b.score - a.score);
-  const best = candidates[0];
-  if (!best || best.textLength < 120 || (best.paragraphs < 2 && !/(chapter|reader|reading|truyen|chuong|txt|story)/i.test(best.marker))) {
-    throw new Error('Không xác định chắc chắn được vùng nội dung chương truyện. App không lấy toàn bộ trang để tránh lẫn menu, quảng cáo hoặc nội dung bên cạnh.');
-  }
-
-  const content = $(best.element).clone();
-  // Loại các tiêu đề trang/chương được nhúng trong vùng đọc; tên truyện/chương không phải nội dung cần đọc.
-  content.find('h1,h2,h3,.chapter-title,.title-chapter,.book-title,.story-title,.entry-title').each((_index, heading) => {
-    const headingText = $(heading).text().trim();
-    if (_index < 3 || headingText.length < 180) $(heading).remove();
-  });
-  content.find('a').each((_index, link) => {
-    const href = String($(link).attr('href') || '').trim();
-    const linkText = $(link).text().trim();
-    if (!linkText || /^(next|previous|prev|tiếp|trước|mục lục|danh sách chương)$/i.test(linkText) || /chapter|chuong/i.test(href)) $(link).remove();
-  });
-
-  let textHtml = content.html() || '';
+  const body = $('body').length ? $('body') : $.root();
+  let textHtml = body.html() || '';
   textHtml = textHtml
     .replace(/<(br|hr)\b[^>]*>/gi, '\n')
     .replace(/<\/(p|div|section|article|blockquote|li|h[1-6])\s*>/gi, '\n\n')
@@ -401,7 +535,8 @@ function extractChapterContent(html, pageUrl) {
     .filter(Boolean)
     .join('\n\n')
     .trim();
-  if (normalized.length < 100) throw new Error('Vùng nội dung tìm được quá ngắn; app đã từ chối lấy cả trang web.');
+
+  if (normalized.length < 80) throw new Error('Nội dung nằm giữa hai cụm điều hướng quá ngắn; app đã từ chối lấy thêm nội dung bên ngoài.');
   return { title: String(pageTitle).replace(/\s+/g, ' ').trim().slice(0, 160), content: normalized };
 }
 

@@ -1,4 +1,4 @@
-# Bắt đầu nhanh – Truyện Audio Desktop 1.4
+# Bắt đầu nhanh – Truyện Audio Desktop 1.4.1
 
 ## Build bằng GitHub Actions
 
@@ -6,11 +6,11 @@
 2. Đưa toàn bộ nội dung thư mục vào repository GitHub (nên để Private nếu muốn giữ mã nguồn riêng).
 3. Giữ nguyên thư mục `.github/workflows` và file `package.json` ở thư mục gốc.
 4. Mở **Actions** → **Build Truyen Audio for Windows** → **Run workflow**.
-5. Khi hoàn tất, tải artifact `Truyen-Audio-Windows-Installer`, giải nén và chạy `Truyen-Audio-Setup-1.4.0.exe`.
+5. Khi hoàn tất, tải artifact `Truyen-Audio-Windows-Installer`, giải nén và chạy `Truyen-Audio-Setup-1.4.1.exe`.
 
-## Tính năng mới trong bản 1.4
+## Tính năng trong bản 1.4.1
 
-- Lấy nội dung URL theo vùng chương; nếu không tìm được vùng nội dung đủ tin cậy thì báo lỗi, không quét cả trang.
+- Lấy nội dung URL theo hai cụm điều hướng “Chương trước – Mục lục – Chương sau”: chỉ lấy phần ở giữa hai cụm, không lấy nội dung bên trên, bên dưới hoặc bên cạnh. Nếu không tìm đủ hai cụm thì báo lỗi, không quét cả trang.
 - Tốc độ đọc tối đa 2.5×.
 - Sửa toàn bộ truyện, sửa từng đoạn, tìm/thay toàn truyện hoặc chương đang chọn, hoàn tác.
 - Từ điển thay thế tự áp dụng cho truyện mới được thêm.

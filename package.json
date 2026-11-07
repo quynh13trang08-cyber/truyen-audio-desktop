@@ -1,6 +1,6 @@
 {
   "name": "truyen-audio-desktop",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Ung dung nghe truyen Windows voi Google Cloud Text-to-Speech",
   "main": "src/main.js",
   "author": "Truyen Audio",

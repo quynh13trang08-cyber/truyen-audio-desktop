@@ -1,11 +1,11 @@
-# Truyện Audio Desktop 1.4
+# Truyện Audio Desktop 1.4.1
 
 Ứng dụng Electron nghe truyện văn bản trên Windows. Thư viện lưu cục bộ trên máy; không yêu cầu máy chủ riêng, đồng bộ Wi-Fi hay dịch vụ Cloud để dùng các chức năng cơ bản.
 
-## Chức năng trong bản 1.4
+## Chức năng trong bản 1.4.1
 
 - Nhập truyện từ TXT/MD/TEXT, dán văn bản hoặc nhập từ URL website công khai.
-- Khi nhập URL, ứng dụng dùng Cheerio để tìm vùng nội dung chương có dấu hiệu ngữ nghĩa (chapter/reader/content/article...). Các khối điều hướng, quảng cáo, bình luận, sidebar, chương liên quan và chân trang phổ biến được loại bỏ. Nếu không xác định được vùng nội dung đủ tin cậy, ứng dụng báo lỗi thay vì lấy toàn bộ trang.
+- Khi nhập URL, ứng dụng tìm hai cụm điều hướng lặp lại theo thứ tự **Chương trước → Mục lục → Chương sau**. Chỉ lấy phần DOM nằm sau cụm đầu tiên và trước cụm thứ hai; các nội dung nằm ngoài hai mốc không được lấy. Nếu không tìm đủ hai cụm hoặc phần ở giữa quá ngắn, ứng dụng báo lỗi, tuyệt đối không chuyển sang lấy toàn trang.
 - Đọc bằng giọng Windows có sẵn hoặc Google Cloud TTS (Google Standard / Chirp 3 HD).
 - Tốc độ đọc 0.6×–2.5×; lưu mức tốc độ đã chọn.
 - Nhảy chương, tua tương đối, lưu tiến độ và tự chuyển chương sau 2 giây.
@@ -18,16 +18,17 @@
 
 ## Lưu ý khi nhập website
 
-- Chỉ hỗ trợ trang công khai trả về HTML/văn bản. Trang yêu cầu đăng nhập, chống bot hoặc dựng nội dung hoàn toàn bằng JavaScript có thể không lấy được.
-- Bộ trích xuất ưu tiên các vùng có selector/ngữ nghĩa của chương truyện. Không có cơ chế dự phòng lấy cả `body`.
-- Mỗi website có cấu trúc riêng; vẫn cần thử với các trang bạn thường đọc để bổ sung selector cụ thể nếu cần.
+- Trang cần công khai và trả về HTML có thể đọc. Trang yêu cầu đăng nhập, chống bot hoặc dựng nội dung hoàn toàn bằng JavaScript có thể không lấy được.
+- Trang phải có hai cụm liên kết nhận diện được theo thứ tự **Chương trước – Mục lục – Chương sau**: một cụm ở trước nội dung chương và một cụm ở sau nội dung chương.
+- App chỉ trích xuất phần nằm giữa hai cụm đó. Nếu tên liên kết của website khác cách gọi trên hoặc website không có đủ hai cụm, app sẽ báo không nhận diện được; không lấy toàn trang làm phương án dự phòng.
+- Vẫn cần thử trên các website bạn thường đọc để điều chỉnh cách nhận diện tên liên kết nếu website dùng nhãn khác.
 
 ## Tạo file cài đặt Windows bằng GitHub Actions
 
 1. Giải nén thư mục `TruyenAudioDesktop` và đưa toàn bộ nội dung vào repository GitHub riêng (có thể để Private).
 2. Giữ thư mục ẩn `.github/workflows` và file `package.json` ở thư mục gốc.
 3. Mở tab **Actions** → workflow **Build Truyen Audio for Windows** → **Run workflow**, hoặc đẩy commit lên `main`/`master` để workflow tự chạy.
-4. Khi build thành công, tải artifact `Truyen-Audio-Windows-Installer`, giải nén và chạy `Truyen-Audio-Setup-1.4.0.exe`.
+4. Khi build thành công, tải artifact `Truyen-Audio-Windows-Installer`, giải nén và chạy `Truyen-Audio-Setup-1.4.1.exe`.
 5. Workflow cài các dependency trong `package.json`, kiểm tra cú pháp JavaScript rồi đóng gói NSIS.
 
 ## Chạy thử khi có Node.js
@@ -49,7 +50,7 @@ npm run dist:win
 
 Ứng dụng lưu `library.json`, thông tin xác thực Google đã mã hóa và bộ nhớ đệm âm thanh trong thư mục dữ liệu riêng của Truyện Audio dưới hồ sơ người dùng Windows (`app.getPath('userData')`). Dùng **Cài đặt → Dữ liệu → Xuất bản sao lưu ZIP** để tạo ZIP mà bạn có thể tự chép lên Drive hoặc thiết bị lưu trữ khác.
 
-Bản 1.4 chỉ triển khai xuất dữ liệu; không có chức năng nhập ZIP, đồng bộ Wi-Fi hoặc đồng bộ Cloud tự động. Tích hợp Google Drive API có thể bổ sung sau khi app ổn định.
+Bản 1.4.1 chỉ triển khai xuất dữ liệu; không có chức năng nhập ZIP, đồng bộ Wi-Fi hoặc đồng bộ Cloud tự động. Tích hợp Google Drive API có thể bổ sung sau khi app ổn định.
 
 ## Google Text-to-Speech
 
@@ -59,7 +60,7 @@ Bản 1.4 chỉ triển khai xuất dữ liệu; không có chức năng nhập 
 
 Kết nối Google TTS cần một Google Cloud project, bật Cloud Text-to-Speech API và OAuth Client ID loại Desktop. Google Cloud có thể yêu cầu billing; hãy kiểm tra hạn mức và giá hiện hành trước khi dùng dài ngày. Nội dung truyện được gửi tới Google khi chọn bộ đọc Google.
 
-## Trạng thái kiểm tra của gói nguồn
+## Trạng thái kiểm tra của gói nguồn 1.4.1
 
 - Đã chạy `node --check` cho `src/main.js`, `src/preload.js` và `src/renderer.js`.
 - Đã tạo ZIP mẫu bằng hàm đóng gói của ứng dụng và kiểm tra thành công bằng Python `zipfile`.
