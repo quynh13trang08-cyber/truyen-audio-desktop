@@ -889,16 +889,35 @@ async function init() {
     renderReplacementRules(); scheduleSave();
   });
   $('applyRulesCurrentStory').addEventListener('click', applyRulesToCurrentStory);
-  $('exportBackup').addEventListener('click', async () => {
-    $('exportBackup').disabled = true; $('backupStatus').textContent = 'Đang chuẩn bị bản sao lưu...';
+  $('exportSelected').addEventListener('click', async () => {
+    const wantZip = $('exportZipOption').checked;
+    const wantTxt = $('exportTxtOption').checked;
+    if (!wantZip && !wantTxt) { toast('Hãy chọn ít nhất một định dạng xuất.'); return; }
+    $('exportSelected').disabled = true;
+    $('backupStatus').textContent = 'Đang chuẩn bị dữ liệu xuất...';
+    const completed = [];
+    const canceled = [];
     try {
       await window.audioAPI.saveLibrary({ library: state.library, settings: state.settings });
-      const result = await window.audioAPI.exportBackupZip();
-      if (result.canceled) { $('backupStatus').textContent = 'Đã hủy xuất bản sao lưu.'; return; }
-      $('backupStatus').textContent = `Đã xuất ${result.stories} truyện · ${(result.bytes / 1024 / 1024).toFixed(2)} MB.`;
-      toast('Đã tạo file sao lưu ZIP.');
-    } catch (error) { $('backupStatus').textContent = error.message; toast(error.message); }
-    finally { $('exportBackup').disabled = false; }
+      if (wantZip) {
+        $('backupStatus').textContent = 'Chọn nơi lưu file ZIP...';
+        const zipResult = await window.audioAPI.exportBackupZip();
+        if (zipResult.canceled) canceled.push('ZIP');
+        else completed.push(`ZIP: ${zipResult.stories} truyện, ${(zipResult.bytes / 1024 / 1024).toFixed(2)} MB`);
+      }
+      if (wantTxt) {
+        $('backupStatus').textContent = 'Chọn thư mục lưu file TXT...';
+        const txtResult = await window.audioAPI.exportTextFiles($('txtExportMode').value);
+        if (txtResult.canceled) canceled.push('TXT');
+        else completed.push(`TXT: ${txtResult.mode === 'combined' ? '1 file gộp' : `${txtResult.files} file riêng`} · ${txtResult.stories} truyện`);
+      }
+      const summary = [...completed, ...canceled.map(item => `${item}: đã hủy`)].join(' | ');
+      $('backupStatus').textContent = summary || 'Chưa có định dạng nào được xuất.';
+      if (completed.length) toast(`Đã xuất dữ liệu: ${completed.join(' · ')}`);
+    } catch (error) {
+      $('backupStatus').textContent = error.message;
+      toast(error.message);
+    } finally { $('exportSelected').disabled = false; }
   });
 
   $('searchInput').addEventListener('input', renderLibrary);

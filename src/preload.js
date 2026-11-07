@@ -10,5 +10,6 @@ contextBridge.exposeInMainWorld('audioAPI', {
   clearTtsKey: () => ipcRenderer.invoke('tts:clear-key'),
   testTtsKey: () => ipcRenderer.invoke('tts:test-key'),
   synthesizeSpeech: options => ipcRenderer.invoke('tts:synthesize', options),
-  exportBackupZip: () => ipcRenderer.invoke('backup:export-zip')
+  exportBackupZip: () => ipcRenderer.invoke('backup:export-zip'),
+  exportTextFiles: mode => ipcRenderer.invoke('backup:export-txt', mode)
 });

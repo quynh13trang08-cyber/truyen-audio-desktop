@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const cheerio = require('cheerio');
+const { sanitizeFileBaseName, formatStoryTxt, formatAllStoriesTxt } = require('./export-utils');
 
 let mainWindow;
 
@@ -166,6 +167,60 @@ ipcMain.handle('backup:export-zip', async () => {
   const zip = makeZip([{ name: 'backup.json', data: JSON.stringify(backup) }]);
   await fs.writeFile(result.filePath, zip);
   return { canceled: false, filePath: result.filePath, stories: backup.library.length, bytes: zip.length };
+});
+
+async function readLibraryForExport() {
+  let data;
+  try { data = JSON.parse(await fs.readFile(dataFile(), 'utf8')); }
+  catch (error) {
+    if (error.code === 'ENOENT') data = { library: [], settings: {} };
+    else throw error;
+  }
+  if (!data || !Array.isArray(data.library)) throw new Error('Dữ liệu thư viện không hợp lệ.');
+  return data.library.filter(story => story && typeof story.title === 'string' && typeof story.content === 'string');
+}
+
+async function availableOutputPath(directory, baseName, extension) {
+  const safeBase = sanitizeFileBaseName(baseName);
+  for (let index = 1; index < 10000; index++) {
+    const suffix = index === 1 ? '' : ` (${index})`;
+    const candidate = path.join(directory, `${safeBase}${suffix}.${extension}`);
+    try { await fs.access(candidate); }
+    catch (error) { if (error.code === 'ENOENT') return candidate; throw error; }
+  }
+  throw new Error('Không tìm được tên file trống để xuất dữ liệu.');
+}
+
+ipcMain.handle('backup:export-txt', async (_event, mode = 'individual') => {
+  const library = await readLibraryForExport();
+  if (!library.length) throw new Error('Thư viện chưa có truyện để xuất TXT.');
+
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn thư mục lưu file TXT',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+
+  const directory = result.filePaths[0];
+  let files = [];
+  let bytes = 0;
+  if (mode === 'combined') {
+    const outputPath = await availableOutputPath(directory, 'TruyenAudio-Tat-Ca-Truyen', 'txt');
+    const text = formatAllStoriesTxt(library);
+    const buffer = Buffer.from(text, 'utf8');
+    await fs.writeFile(outputPath, buffer, { flag: 'wx' });
+    files = [outputPath];
+    bytes = buffer.length;
+  } else {
+    for (const story of library) {
+      const outputPath = await availableOutputPath(directory, story.title, 'txt');
+      const buffer = Buffer.from(formatStoryTxt(story), 'utf8');
+      await fs.writeFile(outputPath, buffer, { flag: 'wx' });
+      files.push(outputPath);
+      bytes += buffer.length;
+    }
+  }
+  return { canceled: false, files: files.length, stories: library.length, bytes, directory, mode: mode === 'combined' ? 'combined' : 'individual' };
 });
 
 function ttsCredentialsFile() {

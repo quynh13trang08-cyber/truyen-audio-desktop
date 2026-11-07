@@ -15,3 +15,11 @@
 @media(max-width:800px){.reading-head{flex-direction:column}.reading-tools{justify-content:flex-start}.rule-form{grid-template-columns:1fr}.reading-paragraph{padding-right:0}.reading-paragraph .paragraph-edit{position:static;opacity:1;pointer-events:auto;margin:-8px 0 12px}}
 
 .rule-apply-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}.rule-apply-row .hint{margin:0}.replacement-rule-actions{display:flex;align-items:center;gap:12px;flex:none}
+
+
+/* Export format choices */
+.export-format-options { display: grid; gap: 10px; margin: 14px 0; }
+.export-option { display: flex; align-items: flex-start; gap: 11px; padding: 12px 14px; border: 1px solid var(--line, rgba(255,255,255,.12)); border-radius: 12px; cursor: pointer; }
+.export-option input { margin-top: 3px; accent-color: var(--accent, #78a9ff); }
+.export-option span { display: grid; gap: 3px; }
+.export-option small { color: var(--muted, #9aa8b8); line-height: 1.45; }

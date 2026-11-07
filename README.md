@@ -1,8 +1,8 @@
-# Truyện Audio Desktop 1.4.1
+# Truyện Audio Desktop 1.4.2
 
 Ứng dụng Electron nghe truyện văn bản trên Windows. Thư viện lưu cục bộ trên máy; không yêu cầu máy chủ riêng, đồng bộ Wi-Fi hay dịch vụ Cloud để dùng các chức năng cơ bản.
 
-## Chức năng trong bản 1.4.1
+## Chức năng trong bản 1.4.2
 
 - Nhập truyện từ TXT/MD/TEXT, dán văn bản hoặc nhập từ URL website công khai.
 - Khi nhập URL, ứng dụng tìm hai cụm điều hướng lặp lại theo thứ tự **Chương trước → Mục lục → Chương sau**. Chỉ lấy phần DOM nằm sau cụm đầu tiên và trước cụm thứ hai; các nội dung nằm ngoài hai mốc không được lấy. Nếu không tìm đủ hai cụm hoặc phần ở giữa quá ngắn, ứng dụng báo lỗi, tuyệt đối không chuyển sang lấy toàn trang.
@@ -14,6 +14,7 @@
 - Từ điển thay thế hỗ trợ thêm/sửa/xóa nhiều quy tắc; tự áp dụng cho truyện mới và có thể xem trước số vị trí rồi áp dụng tất cả quy tắc cho truyện đang mở.
 - Lưu lịch sử chỉnh sửa tối đa 30 bước cho mỗi truyện và hỗ trợ hoàn tác.
 - Xuất bản sao lưu ZIP cục bộ, gồm `backup.json` chứa thư viện, nội dung, lịch sử sửa, cài đặt và quy tắc thay thế. ZIP không chứa file audio/cache.
+- Xuất TXT mã hóa UTF-8: mỗi truyện một file (mặc định) hoặc gộp toàn bộ thư viện; nội dung lấy từ bản đã chỉnh sửa và giữ nguyên các tiêu đề chương có trong văn bản.
 - Giao diện tối/sáng và chế độ nghe tập trung.
 
 ## Lưu ý khi nhập website
@@ -28,7 +29,7 @@
 1. Giải nén thư mục `TruyenAudioDesktop` và đưa toàn bộ nội dung vào repository GitHub riêng (có thể để Private).
 2. Giữ thư mục ẩn `.github/workflows` và file `package.json` ở thư mục gốc.
 3. Mở tab **Actions** → workflow **Build Truyen Audio for Windows** → **Run workflow**, hoặc đẩy commit lên `main`/`master` để workflow tự chạy.
-4. Khi build thành công, tải artifact `Truyen-Audio-Windows-Installer`, giải nén và chạy `Truyen-Audio-Setup-1.4.1.exe`.
+4. Khi build thành công, tải artifact `Truyen-Audio-Windows-Installer`, giải nén và chạy `Truyen-Audio-Setup-1.4.2.exe`.
 5. Workflow cài các dependency trong `package.json`, kiểm tra cú pháp JavaScript rồi đóng gói NSIS.
 
 ## Chạy thử khi có Node.js
@@ -48,9 +49,9 @@ npm run dist:win
 
 ## Dữ liệu và sao lưu
 
-Ứng dụng lưu `library.json`, thông tin xác thực Google đã mã hóa và bộ nhớ đệm âm thanh trong thư mục dữ liệu riêng của Truyện Audio dưới hồ sơ người dùng Windows (`app.getPath('userData')`). Dùng **Cài đặt → Dữ liệu → Xuất bản sao lưu ZIP** để tạo ZIP mà bạn có thể tự chép lên Drive hoặc thiết bị lưu trữ khác.
+Ứng dụng lưu `library.json`, thông tin xác thực Google đã mã hóa và bộ nhớ đệm âm thanh trong thư mục dữ liệu riêng của Truyện Audio dưới hồ sơ người dùng Windows (`app.getPath('userData')`). Dùng **Cài đặt → Xuất dữ liệu** để tạo ZIP (khôi phục trên Android) và/hoặc TXT (đọc, lưu trữ). Khi chọn TXT, có thể xuất mỗi truyện thành một file hoặc gộp tất cả truyện. Nội dung TXT là bản đang lưu trong thư viện sau chỉnh sửa, UTF-8; không kèm audio.
 
-Bản 1.4.1 chỉ triển khai xuất dữ liệu; không có chức năng nhập ZIP, đồng bộ Wi-Fi hoặc đồng bộ Cloud tự động. Tích hợp Google Drive API có thể bổ sung sau khi app ổn định.
+Bản 1.4.2 chỉ triển khai xuất dữ liệu; không có chức năng nhập ZIP, đồng bộ Wi-Fi hoặc đồng bộ Cloud tự động. Tích hợp Google Drive API có thể bổ sung sau khi app ổn định.
 
 ## Google Text-to-Speech
 
@@ -60,9 +61,10 @@ Bản 1.4.1 chỉ triển khai xuất dữ liệu; không có chức năng nhậ
 
 Kết nối Google TTS cần một Google Cloud project, bật Cloud Text-to-Speech API và OAuth Client ID loại Desktop. Google Cloud có thể yêu cầu billing; hãy kiểm tra hạn mức và giá hiện hành trước khi dùng dài ngày. Nội dung truyện được gửi tới Google khi chọn bộ đọc Google.
 
-## Trạng thái kiểm tra của gói nguồn 1.4.1
+## Trạng thái kiểm tra của gói nguồn 1.4.2
 
-- Đã chạy `node --check` cho `src/main.js`, `src/preload.js` và `src/renderer.js`.
+- Đã chạy `node --check` cho `src/main.js`, `src/preload.js`, `src/renderer.js` và `src/export-utils.js`.
+- Đã chạy kiểm thử định dạng TXT: nội dung tiếng Việt, thứ tự chương, gộp nhiều truyện và làm sạch tên file Windows.
 - Đã tạo ZIP mẫu bằng hàm đóng gói của ứng dụng và kiểm tra thành công bằng Python `zipfile`.
 - Chưa chạy được ứng dụng Electron/đóng gói `.exe` trong môi trường này vì chưa cài các dependency Electron/Cheerio và chưa có môi trường Windows để kiểm tra UI, TTS hoặc website thật. Cần build qua GitHub Actions và thử trên PC Windows trước khi coi là đã hoàn tất.
 
@@ -71,3 +73,5 @@ Kết nối Google TTS cần một Google Cloud project, bật Cloud Text-to-Spe
 - Electron + HTML/CSS/JavaScript thuần; trích xuất HTML với Cheerio.
 - `contextIsolation: true`, `nodeIntegration: false`, preload chỉ expose các IPC được cho phép.
 - Electron 45.2.3 và electron-builder 26.18.0; Cheerio là dependency runtime.
+
+

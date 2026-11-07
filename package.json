@@ -1,13 +1,14 @@
 {
   "name": "truyen-audio-desktop",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Ung dung nghe truyen Windows voi Google Cloud Text-to-Speech",
   "main": "src/main.js",
   "author": "Truyen Audio",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist:win": "electron-builder --win nsis"
+    "dist:win": "electron-builder --win nsis",
+    "test": "node --test"
   },
   "dependencies": {
     "cheerio": "^1.0.0"
@@ -28,7 +29,9 @@
     ],
     "asar": true,
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "artifactName": "Truyen-Audio-Setup-${version}.${ext}"
     },
     "nsis": {
