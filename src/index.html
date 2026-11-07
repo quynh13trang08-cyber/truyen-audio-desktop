@@ -24,7 +24,7 @@
       <div class="sidebar-bottom">
         <div class="offline-pill"><span class="pulse"></span> Có chế độ ngoại tuyến</div>
         <p>Truyện và tiến độ được lưu trên máy tính này.</p>
-        <div class="version">TRUYỆN AUDIO · DESKTOP 1.4.2</div>
+        <div class="version">TRUYỆN AUDIO · DESKTOP 1.4.5</div>
       </div>
     </aside>
 
@@ -60,6 +60,26 @@
         <div class="search-wrap"><span>⌕</span><input id="searchInput" type="search" placeholder="Tìm tên truyện..." autocomplete="off" /></div>
         <div class="story-grid" id="storyGrid"></div>
         <div class="empty-state" id="emptyLibrary"><div class="empty-icon">♫</div><h3>Thư viện đang trống</h3><p>Thêm một truyện TXT hoặc dán nội dung để bắt đầu nghe.</p><button class="primary-btn" data-go="add" type="button">＋ Thêm truyện đầu tiên</button></div>
+      </section>
+
+      <section class="view" id="view-chapters">
+        <div class="section-row chapter-browser-heading">
+          <div><div class="eyebrow">DANH SÁCH CHƯƠNG</div><h2 id="chapterStoryTitle">Chưa chọn truyện</h2><p class="muted" id="chapterStoryMeta">Chọn một chương để xem nội dung.</p></div>
+          <div class="chapter-heading-actions"><button class="outline-btn" id="continueSavedPosition" type="button" disabled>▶ Tiếp tục vị trí cũ</button><button class="ghost-btn" id="chaptersBackLibrary" type="button">← Thư viện</button></div>
+        </div>
+        <div class="chapter-browser-layout">
+          <section class="panel-card chapter-list-card">
+            <div class="chapter-list-toolbar"><h3>Các chương</h3><span class="hint" id="chapterCount">0 chương</span></div>
+            <div class="search-wrap chapter-search"><span>⌕</span><input id="chapterSearchInput" type="search" placeholder="Tìm chương theo tên hoặc số..." autocomplete="off" /></div>
+            <div id="chapterBrowserList" class="chapter-browser-list"></div>
+          </section>
+          <aside class="panel-card queue-card">
+            <div class="chapter-list-toolbar"><h3>Hàng đợi phát</h3><span class="hint" id="queueCount">0 chương</span></div>
+            <p class="hint">Chương trong hàng đợi sẽ được phát sau khi chương hiện tại kết thúc.</p>
+            <div id="playQueueList" class="play-queue-list"><div class="queue-empty">Chưa có chương trong hàng đợi.</div></div>
+            <button class="outline-btn queue-clear-btn" id="clearPlayQueue" type="button">Xóa hàng đợi</button>
+          </aside>
+        </div>
       </section>
 
       <section class="view" id="view-add">
@@ -109,7 +129,7 @@
               <button class="round-control" id="previousChapter" title="Chương trước" type="button">|◀</button>
               <button class="round-control skip" id="back10" title="Lùi khoảng 10 giây" type="button">↶<small>10</small></button>
               <button class="play-control" id="playPause" title="Phát" type="button">▶</button>
-              <button class="round-control skip" id="forward10" title="Tiến khoảng 10 giây" type="button">↷<small>10</small></button>
+              <button class="round-control skip" id="forward30" title="Tiến khoảng 30 giây (ước tính với giọng Windows)" type="button">↷<small>30</small></button>
               <button class="round-control" id="nextChapter" title="Chương tiếp" type="button">▶|</button>
             </div>
             <div class="player-settings">
@@ -118,9 +138,11 @@
               <div class="setting-line"><label for="rateSlider">Tốc độ <strong id="rateValue">1.0×</strong></label><input id="rateSlider" type="range" min="0.6" max="2.5" step="0.1" value="1" /></div>
             </div>
             <div class="chapter-line"><label for="chapterSelect">Chương / phần</label><select id="chapterSelect"><option value="0">Toàn bộ truyện</option></select></div>
+            <div class="sleep-timer-line"><label for="sleepTimerSelect">Hẹn giờ tắt</label><select id="sleepTimerSelect"><option value="off">Tắt hẹn giờ</option><option value="15">Sau 15 phút</option><option value="30">Sau 30 phút</option><option value="60">Sau 60 phút</option><option value="chapter">Khi hết chương này</option></select></div>
+            <div class="sleep-timer-status" id="sleepTimerStatus">Chưa đặt hẹn giờ.</div>
           </div>
           <div class="reading-card" id="readingCard">
-            <div class="reading-head"><div><div class="eyebrow">NỘI DUNG ĐANG NGHE</div><h2 id="readingTitle">Chưa chọn truyện</h2></div><div class="reading-tools"><button class="outline-btn" id="editAllStory" type="button">Sửa toàn bộ</button><button class="outline-btn" id="openReplace" type="button">Tìm & thay</button><button class="outline-btn" id="undoEdit" type="button">Hoàn tác</button><button class="ghost-btn" id="backLibrary" type="button">← Thư viện</button></div></div>
+            <div class="reading-head"><div><div class="eyebrow">NỘI DUNG CHƯƠNG</div><h2 id="readingTitle">Chưa chọn truyện</h2></div><div class="reading-tools"><button class="outline-btn" id="editAllStory" type="button">Sửa toàn bộ</button><button class="outline-btn" id="openReplace" type="button">Tìm & thay</button><button class="outline-btn" id="undoEdit" type="button">Hoàn tác</button><button class="ghost-btn" id="backLibrary" type="button">← Danh sách chương</button></div></div>
             <div class="reading-content" id="readingContent"><div class="reading-placeholder"><span>♫</span><p>Nội dung truyện sẽ hiển thị tại đây.</p></div></div>
           </div>
         </div>
@@ -140,7 +162,7 @@
           <div class="settings-block"><h3>Giao diện</h3><div class="setting-line"><label for="themeSelect">Màu giao diện</label><select id="themeSelect"><option value="dark">Tối</option><option value="light">Sáng</option></select></div></div>
           <div class="settings-block"><h3>Từ điển thay thế</h3><p class="muted">Các quy tắc này tự áp dụng cho nội dung truyện mới được thêm vào sau này. Có thể xóa quy tắc bất cứ lúc nào.</p><div class="rule-form"><input id="replacementFrom" type="text" placeholder="Từ/cụm từ cần thay" maxlength="120"/><input id="replacementTo" type="text" placeholder="Thay bằng" maxlength="120"/><button class="outline-btn" id="addReplacementRule" type="button">＋ Thêm quy tắc</button></div><div id="replacementRuleList" class="replacement-rule-list"></div><div class="rule-apply-row"><button class="outline-btn" id="applyRulesCurrentStory" type="button">Áp dụng tất cả quy tắc cho truyện đang mở</button><span class="hint" id="replacementPreview">Mở một truyện để xem trước.</span></div></div>
           <div class="settings-block"><h3>Xuất dữ liệu</h3><p class="muted">Có thể xuất ZIP để khôi phục trên Android hoặc xuất TXT để đọc và lưu trữ. Nội dung TXT sử dụng bản truyện hiện tại đã chỉnh sửa; audio không được xuất.</p><div class="export-format-options"><label class="export-option"><input id="exportZipOption" type="checkbox" checked><span><strong>ZIP</strong><small>Sao lưu thư viện và cài đặt để Android khôi phục.</small></span></label><label class="export-option"><input id="exportTxtOption" type="checkbox" checked><span><strong>TXT</strong><small>Xuất nội dung truyện đã chỉnh sửa, mã hóa UTF-8.</small></span></label></div><div class="setting-line"><label for="txtExportMode">Cách xuất TXT</label><select id="txtExportMode"><option value="individual">Mỗi truyện một file TXT</option><option value="combined">Gộp tất cả truyện vào một file TXT</option></select></div><div class="key-actions"><button class="outline-btn" id="exportSelected" type="button">Xuất định dạng đã chọn</button><button class="outline-btn danger-outline" id="clearLibrary" type="button">Xóa toàn bộ thư viện trên máy này</button></div><p class="hint" id="backupStatus"></p></div>
-          <div class="settings-block"><h3>Thông tin</h3><p class="muted">Truyện Audio Desktop 1.4.3 · Chế độ Windows có thể hoạt động ngoại tuyến. Tính năng nhập website cần Internet.</p></div>
+          <div class="settings-block"><h3>Thông tin</h3><p class="muted">Truyện Audio Desktop 1.4.5 · Chế độ Windows có thể hoạt động ngoại tuyến. Tính năng nhập website cần Internet.</p></div>
         </div>
       </section>
 
@@ -160,6 +182,7 @@
   </dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="import-utils.js"></script>
+  <script src="player-utils.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

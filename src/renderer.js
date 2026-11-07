@@ -3,15 +3,17 @@
 const $ = (id) => document.getElementById(id);
 const synth = window.speechSynthesis;
 const state = {
-  library: [], settings: { theme: 'dark', rate: 1, voiceURI: '', engine: 'windows', googleVoice: 'vi-VN-Standard-A', autoNextChapter: true, replacementRules: [] },
-  activeId: null, activeView: 'library', voices: [], chunks: [], chapters: [],
+  library: [], settings: { theme: 'dark', rate: 1, voiceURI: '', engine: 'windows', googleVoice: 'vi-VN-Standard-A', autoNextChapter: true, replacementRules: [], playQueue: [] },
+  activeId: null, activeView: 'library', voices: [], chunks: [], chapters: [], selectedChapterIndex: 0,
   position: 0, chunkIndex: 0, utterance: null, isPlaying: false,
   pendingFile: null, pendingUrl: null, saveTimer: null, toastTimer: null,
-  isSeeking: false, cloudAudio: new Audio(), cloudSession: 0, cloudActive: false, cloudPending: false, chapterTimer: null, editorTarget: null, ruleEditIndex: null
+  isSeeking: false, cloudAudio: new Audio(), cloudSession: 0, cloudActive: false, cloudPending: false, cloudSegment: null,
+  chapterTimer: null, awaitingQueue: false, sleepTimerTimeout: null, sleepTimerEndChapter: false, playQueue: [], editorTarget: null, ruleEditIndex: null
 };
 
 const viewTitles = {
   library: ['THƯ VIỆN CỦA BẠN', 'Thư viện truyện'],
+  chapters: ['DANH SÁCH CHƯƠNG', 'Chọn chương'],
   add: ['THÊM NỘI DUNG MỚI', 'Thêm truyện'],
   listen: ['KHÔNG GIAN NGHE CỦA BẠN', 'Đang nghe'],
   settings: ['TÙY CHỈNH ỨNG DỤNG', 'Cài đặt']
@@ -49,7 +51,8 @@ function showView(view) {
   state.activeView = view;
   document.querySelectorAll('.view').forEach(node => node.classList.remove('active'));
   $(`view-${view}`).classList.add('active');
-  document.querySelectorAll('.nav-btn').forEach(node => node.classList.toggle('active', node.dataset.view === view));
+  const navView = view === 'chapters' ? 'library' : view;
+  document.querySelectorAll('.nav-btn').forEach(node => node.classList.toggle('active', node.dataset.view === navView));
   $('topEyebrow').textContent = viewTitles[view][0];
   $('topTitle').textContent = viewTitles[view][1];
   if (view !== 'listen') exitFocusMode();
@@ -92,7 +95,7 @@ function renderLibrary() {
     fill.style.width = `${percent}%`; progress.append(fill);
     const actions = document.createElement('div'); actions.className = 'story-actions';
     const listen = document.createElement('button'); listen.className = 'text-btn';
-    listen.textContent = percent ? `▶ Tiếp tục · ${percent}%` : '▶ Nghe truyện';
+    listen.textContent = percent ? `Mở chương · ${percent}% đã nghe` : 'Mở danh sách chương';
     listen.addEventListener('click', () => openStory(item.id, true));
     const remove = document.createElement('button'); remove.className = 'delete-btn'; remove.textContent = 'Xóa';
     remove.addEventListener('click', () => deleteStory(item.id));
@@ -138,15 +141,42 @@ function clearChapterTimer() {
   state.chapterTimer = null;
 }
 
+function isChapterBoundary(position = state.position) {
+  return state.chapters.some(chapter => chapter.start > 0 && chapter.start === position);
+}
+
 function continueAfterChunk(callback) {
-  const atChapterStart = state.settings.autoNextChapter !== false &&
-    state.chapters.some(chapter => chapter.start > 0 && chapter.start === state.position);
-  if (!atChapterStart) { callback(); return; }
+  if (!isChapterBoundary()) { callback(); return; }
+  updateProgress();
   state.utterance = null;
   clearChapterTimer();
+
+  if (state.sleepTimerEndChapter) {
+    clearSleepTimer();
+    $('sleepTimerStatus').textContent = 'Hẹn giờ đã kết thúc.';
+    stopSpeech(true);
+    toast('Đã dừng theo hẹn giờ hết chương.');
+    return;
+  }
+
+  const hasQueuedChapter = state.playQueue.length > 0;
+  if (!hasQueuedChapter && state.settings.autoNextChapter === false) {
+    state.cloudActive = false; state.cloudPending = false; state.cloudSegment = null;
+    if (state.settings.engine !== 'windows') { state.cloudAudio.pause(); state.cloudAudio.removeAttribute('src'); state.cloudAudio.load(); }
+    setPlaying(false);
+    updateProgress();
+    toast('Đã hết chương. Tự động chuyển chương đang tắt.');
+    return;
+  }
+
+  state.awaitingQueue = hasQueuedChapter;
   state.chapterTimer = setTimeout(() => {
     state.chapterTimer = null;
-    if (state.isPlaying) callback();
+    if (!state.isPlaying) return;
+    state.awaitingQueue = false;
+    if (state.playQueue.length) {
+      if (!startNextQueuedChapter()) callback();
+    } else callback();
   }, 2000);
 }
 
@@ -167,16 +197,20 @@ function findChapters(text) {
   return [{ title: 'Toàn bộ truyện', start: 0 }];
 }
 
-function renderReadingContent(story) {
+function renderReadingContent(story, chapterIndex = state.selectedChapterIndex) {
   const container = $('readingContent');
   container.replaceChildren();
+  if (!story) return;
+  const range = PlayerUtils.chapterRange(state.chapters, chapterIndex, story.content.length);
+  state.selectedChapterIndex = range.index;
+  const chapterText = story.content.slice(range.start, range.end);
   const paragraphPattern = /\S[\s\S]*?(?=\n\s*\n|$)/g;
-  const matches = [...story.content.matchAll(paragraphPattern)];
-  if (!matches.length && story.content.trim()) {
+  const matches = [...chapterText.matchAll(paragraphPattern)];
+  if (!matches.length && chapterText.trim()) {
     const p = document.createElement('p');
-    p.textContent = story.content;
-    p.dataset.start = '0';
-    p.dataset.length = String(story.content.length);
+    p.textContent = chapterText;
+    p.dataset.start = String(range.start);
+    p.dataset.length = String(chapterText.length);
     container.append(p);
   } else {
     matches.forEach(match => {
@@ -185,7 +219,7 @@ function renderReadingContent(story) {
       wrapper.className = 'reading-paragraph';
       const p = document.createElement('p');
       p.textContent = part;
-      p.dataset.start = String(match.index);
+      p.dataset.start = String(range.start + match.index);
       p.dataset.length = String(part.length);
       const edit = document.createElement('button');
       edit.type = 'button';
@@ -199,7 +233,209 @@ function renderReadingContent(story) {
       container.append(wrapper);
     });
   }
+  $('readingTitle').textContent = `${story.title} — ${range.title}`;
   updateActiveParagraph();
+}
+
+function renderChapterBrowser() {
+  const story = activeStory();
+  const list = $('chapterBrowserList');
+  list.replaceChildren();
+  if (!story) {
+    $('chapterStoryTitle').textContent = 'Chưa chọn truyện';
+    $('chapterStoryMeta').textContent = 'Chọn một truyện trong thư viện trước.';
+    $('chapterCount').textContent = '0 chương';
+    return;
+  }
+  $('chapterStoryTitle').textContent = story.title;
+  $('chapterStoryMeta').textContent = `${state.chapters.length.toLocaleString('vi-VN')} chương/phần · ${wordCount(story.content).toLocaleString('vi-VN')} từ`;
+  $('chapterCount').textContent = `${state.chapters.length.toLocaleString('vi-VN')} chương`;
+  $('continueSavedPosition').disabled = !(Number(story.progress) > 0);
+  const query = $('chapterSearchInput').value.trim().toLocaleLowerCase('vi');
+  const currentIndex = PlayerUtils.chapterIndexAt(state.chapters, state.position);
+  const fragment = document.createDocumentFragment();
+  state.chapters.forEach((chapter, index) => {
+    const matches = !query || chapter.title.toLocaleLowerCase('vi').includes(query)
+      || String(index + 1).includes(query.replace(/^chương\s*/i, ''));
+    if (!matches) return;
+    const end = state.chapters[index + 1]?.start ?? story.content.length;
+    const chapterLength = Math.max(0, end - chapter.start);
+    const row = document.createElement('div');
+    row.className = `chapter-browser-item${index === currentIndex ? ' active' : ''}`;
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.className = 'chapter-open-btn';
+    const number = document.createElement('span'); number.className = 'chapter-number'; number.textContent = String(index + 1).padStart(2, '0');
+    const info = document.createElement('span'); info.className = 'chapter-item-info';
+    const name = document.createElement('strong'); name.textContent = chapter.title;
+    const meta = document.createElement('small'); meta.textContent = `${wordCount(story.content.slice(chapter.start, end)).toLocaleString('vi-VN')} từ${index === currentIndex && (story.progress || 0) > chapter.start ? ' · Đang nghe dở' : ''}`;
+    info.append(name, meta); select.append(number, info);
+    select.addEventListener('click', () => openSelectedChapter(index));
+    const add = document.createElement('button'); add.type = 'button'; add.className = 'queue-add-btn'; add.textContent = '＋'; add.title = 'Thêm chương vào hàng đợi';
+    add.addEventListener('click', () => addChapterToQueue(story.id, index));
+    row.append(select, add); fragment.append(row);
+  });
+  if (!fragment.childNodes.length) {
+    const empty = document.createElement('div'); empty.className = 'queue-empty'; empty.textContent = 'Không tìm thấy chương phù hợp.'; fragment.append(empty);
+  }
+  list.append(fragment);
+}
+
+function renderPlayQueue() {
+  const list = $('playQueueList');
+  list.replaceChildren();
+  $('queueCount').textContent = `${state.playQueue.length} chương`;
+  if (!state.playQueue.length) {
+    const empty = document.createElement('div'); empty.className = 'queue-empty'; empty.textContent = 'Chưa có chương trong hàng đợi.'; list.append(empty); return;
+  }
+  state.playQueue.forEach((item, index) => {
+    const story = state.library.find(entry => entry.id === item.storyId);
+    if (!story) return;
+    const row = document.createElement('div'); row.className = 'queue-item';
+    const label = document.createElement('div'); label.className = 'queue-item-label';
+    const title = document.createElement('strong'); title.textContent = item.chapterTitle;
+    const sub = document.createElement('small'); sub.textContent = story.title;
+    label.append(title, sub);
+    const actions = document.createElement('div'); actions.className = 'queue-item-actions';
+    const up = document.createElement('button'); up.type = 'button'; up.textContent = '↑'; up.title = 'Chuyển lên'; up.disabled = index === 0;
+    up.addEventListener('click', () => moveQueueItem(index, -1));
+    const down = document.createElement('button'); down.type = 'button'; down.textContent = '↓'; down.title = 'Chuyển xuống'; down.disabled = index === state.playQueue.length - 1;
+    down.addEventListener('click', () => moveQueueItem(index, 1));
+    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.title = 'Bỏ khỏi hàng đợi';
+    remove.addEventListener('click', () => removeQueueItem(index));
+    actions.append(up, down, remove); row.append(label, actions); list.append(row);
+  });
+}
+
+function savePlayQueue() {
+  state.settings.playQueue = state.playQueue.map(item => ({ ...item }));
+  renderPlayQueue();
+  scheduleSave();
+}
+
+function addChapterToQueue(storyId, chapterIndex) {
+  const story = state.library.find(item => item.id === storyId);
+  if (!story) return;
+  const chapters = findChapters(story.content);
+  const chapter = chapters[chapterIndex];
+  if (!chapter) return;
+  const item = { storyId, chapterStart: chapter.start, chapterTitle: chapter.title };
+  if (state.playQueue.some(existing => PlayerUtils.queueKey(existing) === PlayerUtils.queueKey(item))) {
+    toast('Chương này đã có trong hàng đợi.'); return;
+  }
+  state.playQueue.push(item);
+  savePlayQueue();
+  toast(`Đã thêm “${chapter.title}” vào hàng đợi.`);
+}
+
+function removeQueueItem(index) {
+  state.playQueue.splice(index, 1); savePlayQueue();
+}
+
+function moveQueueItem(index, delta) {
+  const target = index + delta;
+  if (target < 0 || target >= state.playQueue.length) return;
+  [state.playQueue[index], state.playQueue[target]] = [state.playQueue[target], state.playQueue[index]];
+  savePlayQueue();
+}
+
+function clearPlayQueue() {
+  state.playQueue = [];
+  savePlayQueue();
+  toast('Đã xóa hàng đợi phát.');
+}
+
+function continueFromSavedPosition() {
+  const story = activeStory();
+  if (!story || !(Number(story.progress) > 0)) { toast('Truyện chưa có tiến độ nghe để tiếp tục.'); return; }
+  state.position = Math.max(0, Math.min(Number(story.progress) || 0, story.content.length));
+  state.chapters = findChapters(story.content);
+  state.selectedChapterIndex = PlayerUtils.chapterIndexAt(state.chapters, state.position);
+  state.chunks = splitIntoChunks(story.content, state.settings.engine === 'windows' ? 230 : 1000, chapterBoundaries());
+  renderChapters();
+  renderReadingContent(story, state.selectedChapterIndex);
+  updateProgress();
+  showView('listen');
+}
+
+function openSelectedChapter(index) {
+  const story = activeStory();
+  if (!story || !state.chapters[index]) return;
+  stopSpeech(false);
+  const range = PlayerUtils.chapterRange(state.chapters, index, story.content.length);
+  state.selectedChapterIndex = index;
+  state.position = range.start;
+  state.chunks = splitIntoChunks(story.content, state.settings.engine === 'windows' ? 230 : 1000, chapterBoundaries());
+  story.progress = state.position;
+  $('nowTitle').textContent = story.title;
+  $('nowMeta').textContent = `${range.title} · ${wordCount(story.content.slice(range.start, range.end)).toLocaleString('vi-VN')} từ`;
+  $('miniTitle').textContent = story.title;
+  renderChapters();
+  renderReadingContent(story, index);
+  updateProgress();
+  showView('listen');
+}
+
+function setSleepTimer(mode) {
+  clearSleepTimer();
+  $('sleepTimerSelect').value = mode;
+  if (mode === 'off') { $('sleepTimerStatus').textContent = 'Chưa đặt hẹn giờ.'; return; }
+  if (mode === 'chapter') {
+    state.sleepTimerEndChapter = true;
+    $('sleepTimerStatus').textContent = 'Sẽ dừng khi chương hiện tại kết thúc.';
+    toast('Hẹn giờ dừng khi hết chương đã bật.');
+    return;
+  }
+  const minutes = Number(mode);
+  if (![15, 30, 60].includes(minutes)) { $('sleepTimerSelect').value = 'off'; return; }
+  $('sleepTimerStatus').textContent = `Sẽ dừng sau ${minutes} phút.`;
+  state.sleepTimerTimeout = setTimeout(() => {
+    state.sleepTimerTimeout = null;
+    state.sleepTimerEndChapter = false;
+    $('sleepTimerSelect').value = 'off';
+    $('sleepTimerStatus').textContent = 'Hẹn giờ đã kết thúc.';
+    stopSpeech(true);
+    toast('Đã dừng phát theo hẹn giờ.');
+  }, minutes * 60 * 1000);
+  toast(`Đã đặt hẹn giờ ${minutes} phút.`);
+}
+
+function clearSleepTimer() {
+  if (state.sleepTimerTimeout) clearTimeout(state.sleepTimerTimeout);
+  state.sleepTimerTimeout = null;
+  state.sleepTimerEndChapter = false;
+  if ($('sleepTimerSelect')) $('sleepTimerSelect').value = 'off';
+  if ($('sleepTimerStatus')) $('sleepTimerStatus').textContent = 'Chưa đặt hẹn giờ.';
+}
+
+function startNextQueuedChapter() {
+  clearChapterTimer();
+  state.awaitingQueue = false;
+  while (state.playQueue.length) {
+    const item = state.playQueue.shift();
+    const story = state.library.find(entry => entry.id === item.storyId);
+    if (!story) continue;
+    state.activeId = story.id;
+    state.chapters = findChapters(story.content);
+    let index = state.chapters.findIndex(chapter => chapter.title === item.chapterTitle);
+    if (index < 0) index = state.chapters.findIndex(chapter => chapter.start === item.chapterStart);
+    if (index < 0) index = PlayerUtils.chapterIndexAt(state.chapters, Math.min(item.chapterStart, story.content.length));
+    state.selectedChapterIndex = index;
+    state.position = state.chapters[index]?.start || 0;
+    state.chunks = splitIntoChunks(story.content, state.settings.engine === 'windows' ? 230 : 1000, chapterBoundaries());
+    state.settings.playQueue = state.playQueue.map(entry => ({ ...entry }));
+    $('nowTitle').textContent = story.title;
+    $('nowMeta').textContent = `${state.chapters[index]?.title || 'Chương'} · Hàng đợi phát`;
+    $('miniTitle').textContent = story.title;
+    $('undoEdit').disabled = !Array.isArray(story.editHistory) || !story.editHistory.length;
+    renderChapters(); renderReadingContent(story, index); renderChapterBrowser(); renderPlayQueue();
+    updateProgress(); renderLibrary(); showView('listen');
+    speakFrom(state.position);
+    scheduleSave();
+    return true;
+  }
+  savePlayQueue();
+  return false;
 }
 
 function pushEditHistory(story, action) {
@@ -262,9 +498,11 @@ function applyContentChange(newContent, reason, preferredPosition = state.positi
   state.position = Math.max(0, Math.min(preferredPosition, story.content.length));
   story.progress = state.position;
   state.chapters = findChapters(story.content);
+  state.selectedChapterIndex = PlayerUtils.chapterIndexAt(state.chapters, state.position);
   state.chunks = splitIntoChunks(story.content, 230, chapterBoundaries());
   $('nowMeta').textContent = `${wordCount(story.content).toLocaleString('vi-VN')} từ · Đã lưu trên thiết bị`;
-  renderReadingContent(story);
+  renderReadingContent(story, state.selectedChapterIndex);
+  renderChapterBrowser();
   $('undoEdit').disabled = !Array.isArray(story.editHistory) || !story.editHistory.length;
   renderChapters();
   updateProgress();
@@ -455,7 +693,15 @@ function updateProgress() {
   $('progressSlider').value = String(Math.round(state.position / total * 1000));
   $('progressPercent').textContent = `${Math.round(state.position / total * 100)}%`;
   $('progressChars').textContent = `${state.position.toLocaleString('vi-VN')} / ${story.content.length.toLocaleString('vi-VN')} ký tự`;
-  $('miniSub').textContent = `${Math.round(state.position / total * 100)}% · ${state.isPlaying ? 'Đang phát' : 'Tạm dừng'}`;
+  const chapterIndex = PlayerUtils.chapterIndexAt(state.chapters, state.position);
+  if (chapterIndex !== state.selectedChapterIndex && state.activeId) {
+    state.selectedChapterIndex = chapterIndex;
+    if (state.activeView === 'listen') renderReadingContent(story, chapterIndex);
+    renderChapters();
+    if (state.activeView === 'chapters') renderChapterBrowser();
+  }
+  const chapterTitle = state.chapters[chapterIndex]?.title || '';
+  $('miniSub').textContent = `${Math.round(state.position / total * 100)}% · ${chapterTitle} · ${state.isPlaying ? 'Đang phát' : 'Tạm dừng'}`;
   updateActiveParagraph();
   scheduleSave();
 }
@@ -469,10 +715,8 @@ function renderChapters() {
     option.textContent = chapter.title;
     select.append(option);
   });
-  let selected = 0;
-  for (let i = 0; i < state.chapters.length; i++) {
-    if (state.chapters[i].start <= state.position) selected = i;
-  }
+  const selected = PlayerUtils.chapterIndexAt(state.chapters, state.position);
+  state.selectedChapterIndex = selected;
   select.value = String(selected);
 }
 
@@ -483,20 +727,22 @@ function openStory(id, autoNavigate = false) {
   state.activeId = id;
   state.position = Math.max(0, Math.min(story.progress || 0, story.content.length));
   state.chapters = findChapters(story.content);
+  state.selectedChapterIndex = PlayerUtils.chapterIndexAt(state.chapters, state.position);
   state.chunks = splitIntoChunks(story.content, 230, chapterBoundaries());
   $('nowTitle').textContent = story.title;
   $('nowMeta').textContent = `${wordCount(story.content).toLocaleString('vi-VN')} từ · Đã lưu trên thiết bị`;
-  $('readingTitle').textContent = story.title;
   $('miniTitle').textContent = story.title;
   $('playPause').textContent = '▶';
   $('miniPlay').textContent = '▶';
-  renderReadingContent(story);
+  renderReadingContent(story, state.selectedChapterIndex);
   $('undoEdit').disabled = !Array.isArray(story.editHistory) || !story.editHistory.length;
   renderChapters();
+  renderChapterBrowser();
+  renderPlayQueue();
   updateProgress();
   renderLibrary();
   updateReplacementPreview();
-  if (autoNavigate) showView('listen');
+  if (autoNavigate) showView('chapters');
 }
 
 function deleteStory(id) {
@@ -506,13 +752,17 @@ function deleteStory(id) {
     stopSpeech(false);
     state.activeId = null;
     state.position = 0;
+    state.chapters = [];
+    state.selectedChapterIndex = 0;
     $('nowTitle').textContent = 'Chưa chọn truyện';
     $('readingTitle').textContent = 'Chưa chọn truyện';
     $('miniTitle').textContent = 'Chưa phát truyện';
     $('readingContent').innerHTML = '<div class="reading-placeholder"><span>♫</span><p>Nội dung truyện sẽ hiển thị tại đây.</p></div>';
   }
   state.library = state.library.filter(item => item.id !== id);
-  persistNow(); renderLibrary(); toast('Đã xóa truyện.');
+  state.playQueue = state.playQueue.filter(item => item.storyId !== id);
+  savePlayQueue();
+  persistNow(); renderLibrary(); renderChapterBrowser(); renderPlayQueue(); toast('Đã xóa truyện.');
 }
 
 function selectedVoice() {
@@ -676,6 +926,7 @@ async function speakCloudCurrentChunk(session) {
     audio.pause();
     audio.src = `data:audio/mpeg;base64,${result.audioContent}`;
     audio.playbackRate = engine === 'google-ai' ? (Number(state.settings.rate) || 1) : 1;
+    state.cloudSegment = { start: chunk.start + localOffset, length: text.length };
     audio.ontimeupdate = () => {
       if (session !== state.cloudSession || !Number.isFinite(audio.duration) || audio.duration <= 0) return;
       state.position = Math.min(story.content.length, chunk.start + localOffset + Math.round((audio.currentTime / audio.duration) * (text.length)));
@@ -687,7 +938,13 @@ async function speakCloudCurrentChunk(session) {
       state.chunkIndex++;
       updateProgress();
       if (state.chunkIndex < state.chunks.length) continueAfterChunk(() => speakCloudCurrentChunk(session));
-      else { state.cloudActive = false; setPlaying(false); toast('Đã đọc hết truyện.'); }
+      else if (state.sleepTimerEndChapter) {
+        clearSleepTimer(); $('sleepTimerStatus').textContent = 'Hẹn giờ đã kết thúc.'; state.cloudActive = false; setPlaying(false); updateProgress(); toast('Đã dừng theo hẹn giờ hết chương.');
+      } else if (state.playQueue.length) {
+        state.awaitingQueue = true;
+        state.cloudActive = false;
+        state.chapterTimer = setTimeout(() => { state.chapterTimer = null; state.awaitingQueue = false; if (state.isPlaying && !startNextQueuedChapter()) { setPlaying(false); toast('Đã đọc hết truyện.'); } }, 1500);
+      } else { state.cloudActive = false; setPlaying(false); toast('Đã đọc hết truyện.'); }
     };
     audio.onerror = () => {
       if (session !== state.cloudSession) return;
@@ -730,7 +987,13 @@ function speakCurrentChunk() {
     state.chunkIndex++;
     updateProgress();
     if (state.chunkIndex < state.chunks.length) continueAfterChunk(() => speakCurrentChunk());
-    else { setPlaying(false); toast('Đã đọc hết truyện.'); }
+    else if (state.sleepTimerEndChapter) {
+      clearSleepTimer(); $('sleepTimerStatus').textContent = 'Hẹn giờ đã kết thúc.'; setPlaying(false); updateProgress(); toast('Đã dừng theo hẹn giờ hết chương.');
+    } else if (state.playQueue.length) {
+      clearChapterTimer();
+      state.awaitingQueue = true;
+      state.chapterTimer = setTimeout(() => { state.chapterTimer = null; state.awaitingQueue = false; if (state.isPlaying && !startNextQueuedChapter()) { setPlaying(false); toast('Đã đọc hết truyện.'); } }, 1500);
+    } else { setPlaying(false); toast('Đã đọc hết truyện.'); }
   };
   utterance.onerror = event => {
     if (event.error !== 'canceled' && event.error !== 'interrupted') {
@@ -743,8 +1006,9 @@ function speakCurrentChunk() {
 
 function stopSpeech(save = true) {
   clearChapterTimer();
+  state.awaitingQueue = false;
   if (synth) synth.cancel();
-  state.cloudSession++; state.cloudActive = false; state.cloudPending = false;
+  state.cloudSession++; state.cloudActive = false; state.cloudPending = false; state.cloudSegment = null;
   if (state.cloudAudio) { state.cloudAudio.pause(); state.cloudAudio.removeAttribute('src'); state.cloudAudio.load(); }
   state.utterance = null;
   setPlaying(false);
@@ -766,6 +1030,10 @@ function togglePlayback() {
       if (state.cloudPending) { state.cloudSession++; state.cloudPending = false; state.cloudActive = false; }
     } else synth.pause();
     setPlaying(false); updateProgress();
+  } else if (state.awaitingQueue && state.playQueue.length) {
+    state.awaitingQueue = false;
+    clearChapterTimer();
+    startNextQueuedChapter();
   } else if (state.settings.engine !== 'windows' && state.cloudActive && state.cloudAudio.src) {
     state.cloudAudio.play().then(() => setPlaying(true)).catch(error => toast(error.message));
   } else if (state.settings.engine === 'windows' && synth.paused && state.utterance) {
@@ -790,9 +1058,26 @@ function seekTo(position) {
 function skipApprox(seconds) {
   const story = activeStory();
   if (!story) return;
-  // SpeechSynthesis không cung cấp timeline audio chuẩn; quy đổi gần đúng theo tốc độ đọc trung bình.
-  const charsPerSecond = 12.5 * (Number(state.settings.rate) || 1);
-  seekTo(state.position + Math.round(seconds * charsPerSecond));
+  const amount = Number(seconds) || 0;
+  const audio = state.cloudAudio;
+  if (state.cloudActive && !state.cloudPending && Number.isFinite(audio.duration) && audio.duration > 0 && state.cloudSegment) {
+    // Quy đổi theo thời gian thực: Google AI có thể phát nhanh hơn 1× bằng playbackRate.
+    const playbackRate = Math.max(0.1, Number(audio.playbackRate) || 1);
+    const targetTime = audio.currentTime + amount * playbackRate;
+    if (targetTime >= 0 && targetTime <= audio.duration) {
+      audio.currentTime = targetTime;
+      return;
+    }
+    // Cho phép tua vượt đầu/cuối đoạn TTS hiện tại; seekTo sẽ chuyển sang đoạn kế/câu trước.
+    const targetPosition = PlayerUtils.estimateCloudPosition(
+      { ...state.cloudSegment, duration: audio.duration }, audio.currentTime, amount, playbackRate
+    );
+    seekTo(targetPosition);
+    return;
+  }
+  // SpeechSynthesis của Windows không cung cấp timeline chính xác; dùng ước lượng ký tự/giây.
+  const offset = PlayerUtils.estimateCharacterOffset(amount, state.settings.rate || 1);
+  seekTo(state.position + offset);
 }
 
 function jumpChapter(delta) {
@@ -906,6 +1191,7 @@ function appendFileToExistingStory() {
   if (state.activeId === target.id) {
     state.position = target.progress;
     state.chapters = findChapters(target.content);
+    state.selectedChapterIndex = PlayerUtils.chapterIndexAt(state.chapters, state.position);
     state.chunks = splitIntoChunks(target.content, 230, chapterBoundaries());
     $('nowMeta').textContent = `${wordCount(target.content).toLocaleString('vi-VN')} từ · Đã lưu trên thiết bị`;
     renderReadingContent(target);
@@ -980,10 +1266,13 @@ async function init() {
   } catch (error) { toast(`Không tải được thư viện: ${error.message}`); }
   state.settings.rate = Math.min(2.5, Math.max(0.6, Number(state.settings.rate) || 1));
   if (!Array.isArray(state.settings.replacementRules)) state.settings.replacementRules = [];
+  state.playQueue = PlayerUtils.normalizeQueue(state.settings.playQueue, state.library);
+  state.settings.playQueue = state.playQueue.map(item => ({ ...item }));
   applyTheme();
   renderReplacementRules();
   $('autoNextChapter').checked = state.settings.autoNextChapter !== false;
   renderLibrary();
+  renderPlayQueue();
   loadVoices();
   if (synth) synth.addEventListener('voiceschanged', loadVoices);
   try { const status = await window.audioAPI.getTtsStatus(); $('googleKeyStatus').textContent = status.configured ? `Đã kết nối Google Cloud · Project: ${status.projectId}.` : 'Chưa kết nối Google Cloud.'; if (status.projectId) $('googleProjectId').value = status.projectId; } catch (error) { $('googleKeyStatus').textContent = error.message; }
@@ -1054,6 +1343,10 @@ async function init() {
   });
 
   $('searchInput').addEventListener('input', renderLibrary);
+  $('chapterSearchInput').addEventListener('input', renderChapterBrowser);
+  $('clearPlayQueue').addEventListener('click', clearPlayQueue);
+  $('continueSavedPosition').addEventListener('click', continueFromSavedPosition);
+  $('sleepTimerSelect').addEventListener('change', event => setSleepTimer(event.target.value));
   $('chooseFile').addEventListener('click', async () => {
     try {
       const result = await window.audioAPI.openTextFile();
@@ -1105,11 +1398,12 @@ async function init() {
   $('playPause').addEventListener('click', togglePlayback);
   $('miniPlay').addEventListener('click', togglePlayback);
   $('back10').addEventListener('click', () => skipApprox(-10));
-  $('forward10').addEventListener('click', () => skipApprox(10));
+  $('forward30').addEventListener('click', () => skipApprox(30));
   $('previousChapter').addEventListener('click', () => jumpChapter(-1));
   $('nextChapter').addEventListener('click', () => jumpChapter(1));
   $('chapterSelect').addEventListener('change', event => {
-    const chapter = state.chapters[Number(event.target.value)]; if (chapter) seekTo(chapter.start);
+    const index = Number(event.target.value);
+    if (state.chapters[index]) openSelectedChapter(index);
   });
   $('progressSlider').addEventListener('input', event => {
     state.isSeeking = true;
@@ -1165,12 +1459,14 @@ async function init() {
   });
   $('focusMode').addEventListener('click', enterFocusMode);
   $('exitFocus').addEventListener('click', exitFocusMode);
-  $('backLibrary').addEventListener('click', () => showView('library'));
+  $('backLibrary').addEventListener('click', () => { renderChapterBrowser(); showView('chapters'); });
+  $('chaptersBackLibrary').addEventListener('click', () => showView('library'));
   $('clearLibrary').addEventListener('click', async () => {
     if (!state.library.length) { toast('Thư viện hiện đang trống.'); return; }
     if (!confirm('Xóa toàn bộ truyện và tiến độ đã lưu trên máy này? Thao tác này không thể hoàn tác.')) return;
-    stopSpeech(false); state.library = []; state.activeId = null; state.position = 0;
-    await persistNow(); renderLibrary();
+    stopSpeech(false); clearChapterTimer(); clearSleepTimer(); state.awaitingQueue = false;
+    state.library = []; state.activeId = null; state.position = 0; state.chapters = []; state.selectedChapterIndex = 0; state.playQueue = []; state.settings.playQueue = [];
+    await persistNow(); renderLibrary(); renderChapterBrowser(); renderPlayQueue();
     $('nowTitle').textContent = 'Chưa chọn truyện'; $('readingTitle').textContent = 'Chưa chọn truyện'; $('miniTitle').textContent = 'Chưa phát truyện';
     $('readingContent').innerHTML = '<div class="reading-placeholder"><span>♫</span><p>Nội dung truyện sẽ hiển thị tại đây.</p></div>';
     toast('Đã xóa thư viện.');
